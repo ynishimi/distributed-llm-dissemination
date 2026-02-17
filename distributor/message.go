@@ -13,11 +13,11 @@ type Message interface {
 
 // announceMsg
 type announceMsg struct {
-	src      nodeID
-	layerIDs layerIDs
+	src      NodeID
+	layerIDs LayerIDs
 }
 
-func NewAnnounceMsg(src nodeID, layers layerIDs) *announceMsg {
+func NewAnnounceMsg(src NodeID, layers LayerIDs) *announceMsg {
 	return &announceMsg{
 		src:      src,
 		layerIDs: layers,
@@ -40,11 +40,11 @@ func (m *announceMsg) String() string {
 // ackMsg
 
 type ackMsg struct {
-	src     nodeID
-	layerID layerID
+	src     NodeID
+	layerID LayerID
 }
 
-func NewAckMsg(src nodeID, layerID layerID) *ackMsg {
+func NewAckMsg(src NodeID, layerID LayerID) *ackMsg {
 	return &ackMsg{
 		src:     src,
 		layerID: layerID,
@@ -67,12 +67,12 @@ func (m *ackMsg) String() string {
 // layerMsg
 
 type layerMsg struct {
-	src     nodeID
-	layerID layerID
+	src     NodeID
+	layerID LayerID
 	layer   layer
 }
 
-func NewLayerMsg(src nodeID, layerID layerID, layer layer) *layerMsg {
+func NewLayerMsg(src NodeID, layerID LayerID, layer layer) *layerMsg {
 	return &layerMsg{
 		src:     src,
 		layerID: layerID,

@@ -11,38 +11,43 @@ import (
 // node interface has its ID.
 type node interface {
 	// Shows its ID
-	getMyID() nodeID
+	getMyID() NodeID
 	// returns leader's nodeID
-	getLeader() nodeID
+	getLeader() NodeID
 	// returns next hop according to the routing table
-	getNextHop(goal nodeID) (nodeID, error)
+	getNextHop(goal NodeID) (NodeID, error)
 
 	// Adds a node
-	addNode(goal nodeID, nextHop nodeID, remainingHops uint)
+	addNode(goal NodeID, nextHop NodeID, remainingHops uint)
 	// Updates nodeID of leader
-	updateLeader(nodeID nodeID) error
+	updateLeader(nodeID NodeID) error
 }
 
 type n struct {
-	myID     nodeID
-	leaderID nodeID
+	myID     NodeID
+	leaderID NodeID
 
 	// todo: accept multiple values? (for indirect loading)
-	routingTable map[nodeID]routingInfo
+	routingTable map[NodeID]routingInfo
 
 	mu sync.RWMutex
 }
 
 // Creates a new node.
-func NewNode(myID nodeID, leaderID nodeID) *n {
-	return &n{
+func NewNode(myID NodeID, leaderID NodeID) *n {
+	newNode := &n{
 		myID:         myID,
 		leaderID:     leaderID,
-		routingTable: make(map[nodeID]routingInfo),
+		routingTable: make(map[NodeID]routingInfo),
 	}
+
+	// add leader
+	newNode.addNode(leaderID, leaderID, 1)
+
+	return newNode
 }
 
-func (n *n) getMyID() nodeID {
+func (n *n) getMyID() NodeID {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
@@ -50,14 +55,14 @@ func (n *n) getMyID() nodeID {
 }
 
 // returns leader's nodeID
-func (n *n) getLeader() nodeID {
+func (n *n) getLeader() NodeID {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
 	return n.leaderID
 }
 
-func (n *n) getNextHop(goalID nodeID) (nodeID, error) {
+func (n *n) getNextHop(goalID NodeID) (NodeID, error) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
@@ -71,7 +76,7 @@ func (n *n) getNextHop(goalID nodeID) (nodeID, error) {
 }
 
 // adds node
-func (n *n) addNode(goal nodeID, nextHop nodeID, remainingHops uint) {
+func (n *n) addNode(goal NodeID, nextHop NodeID, remainingHops uint) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -81,7 +86,7 @@ func (n *n) addNode(goal nodeID, nextHop nodeID, remainingHops uint) {
 	}
 }
 
-func (n *n) updateLeader(leaderID nodeID) error {
+func (n *n) updateLeader(leaderID NodeID) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -96,29 +101,29 @@ func (n *n) updateLeader(leaderID nodeID) error {
 	return nil
 }
 
-type nodeID uint
-type layerID uint
+type NodeID uint
+type LayerID uint
 
-// set of layerIDs
-type layerIDs map[layerID]struct{}
+// set of LayerIDs
+type LayerIDs map[LayerID]struct{}
 
-type layers map[layerID]*layer
+type Layers map[LayerID]*layer
 
 type routingInfo struct {
-	nextHop       nodeID
+	nextHop       NodeID
 	remainingHops uint
 }
 
 // key: node, value: layers
-type assignment map[nodeID]layerIDs
+type Assignment map[NodeID]LayerIDs
 
-type status map[nodeID]layerIDs
+type status map[NodeID]LayerIDs
 
 // content of layer
 type layer []byte
 
-func (l layerIDs) String() string {
-	layerIds := make([]layerID, 0, len(l))
+func (l LayerIDs) String() string {
+	layerIds := make([]LayerID, 0, len(l))
 	for id := range l {
 		layerIds = append(layerIds, id)
 	}
@@ -133,28 +138,28 @@ type leader interface {
 	// todo
 	// crash(n node)
 
-	// Notifies that the assignment is ready
-	ready(a assignment) <-chan assignment // todo: maybe error should be sent when assignment was interrupted?
+	// Notifies that the assignment is Ready
+	Ready() <-chan Assignment // todo: maybe error should be sent when assignment was interrupted?
 }
 
-type leaderNode struct {
+type LeaderNode struct {
 	node
 	t         Transport
-	layers    layers
-	a         assignment
+	layers    Layers
+	a         Assignment
 	s         status
-	readyChan chan assignment
+	readyChan chan Assignment
 	mu        sync.RWMutex
 }
 
-func newLeaderNode(node node, t Transport, layers layers, a assignment) *leaderNode {
-	leaderNode := &leaderNode{
+func NewLeaderNode(node node, t Transport, layers Layers, a Assignment) *LeaderNode {
+	leaderNode := &LeaderNode{
 		node:      node,
 		t:         t,
 		layers:    layers,
 		a:         a,
 		s:         make(status),
-		readyChan: make(chan assignment),
+		readyChan: make(chan Assignment),
 	}
 
 	leaderNode.handleIncomingMsg()
@@ -163,7 +168,7 @@ func newLeaderNode(node node, t Transport, layers layers, a assignment) *leaderN
 }
 
 // handle msg
-func (leader *leaderNode) handleIncomingMsg() {
+func (leader *LeaderNode) handleIncomingMsg() {
 	go func() {
 		for incomingMsg := range leader.t.Deliver() {
 			log.Debug().Msgf("incoming msg[%T]: %s", incomingMsg, incomingMsg)
@@ -184,11 +189,8 @@ func (leader *leaderNode) handleIncomingMsg() {
 // }
 
 // handleAnnounceMsg registers a peer and starts sending the requested layers.
-func (leader *leaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
-	err := leader.registerPeer()
-	if err != nil {
-		log.Error().Err(err).Msg("couldn't register a peer")
-	}
+func (leader *LeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
+	leader.node.addNode(announceMsg.src, announceMsg.src, 1)
 
 	src := announceMsg.src
 	for layerID := range announceMsg.layerIDs {
@@ -200,19 +202,21 @@ func (leader *leaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
 	}
 }
 
-func (leader *leaderNode) registerPeer() error {
-	// todo
-	return nil
-}
+// func (leader *LeaderNode) addNode(goal NodeID, nextHop NodeID, remainingHops uint) error {
+// 	// adds it to node
+// 	leader.node.addNode(goal, nextHop, remainingHops)
 
-func (leader *leaderNode) sendLayer(dest nodeID, layerID *layerID, layer *layer) error {
+// 	return nil
+// }
+
+func (leader *LeaderNode) sendLayer(dest NodeID, layerID *LayerID, layer *layer) error {
 	layerMsg := NewLayerMsg(leader.node.getMyID(), *layerID, *layer)
 	err := leader.t.Send(fmt.Sprint(dest), layerMsg)
 	return err
 }
 
 // marks the delivery of ackMsg.layer to be done.
-func (leader *leaderNode) handleAckMsg(ackMsg *ackMsg) {
+func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	leader.mu.Lock()
 
 	curStatus := leader.s[ackMsg.src]
@@ -230,25 +234,25 @@ func (leader *leaderNode) handleAckMsg(ackMsg *ackMsg) {
 	leader.mu.Unlock()
 }
 
-func (leader *leaderNode) ready(a assignment) <-chan assignment {
+func (leader *LeaderNode) Ready() <-chan Assignment {
 	return leader.readyChan
 }
 
 // receiver
 type receiver interface {
 	// announces its existence (with the layers it has) to leader
-	announce() error
+	Announce() error
 }
 
-type receiverNode struct {
+type ReceiverNode struct {
 	node
 	t      Transport
-	layers layers
+	layers Layers
 	mu     sync.RWMutex
 }
 
-func newReceiverNode(t Transport, node node, layers layers) *receiverNode {
-	receiverNode := &receiverNode{
+func NewReceiverNode(node node, t Transport, layers Layers) *ReceiverNode {
+	receiverNode := &ReceiverNode{
 		node:   node,
 		t:      t,
 		layers: layers,
@@ -260,7 +264,7 @@ func newReceiverNode(t Transport, node node, layers layers) *receiverNode {
 }
 
 // handle msg
-func (receiver *receiverNode) handleIncomingMsg() {
+func (receiver *ReceiverNode) handleIncomingMsg() {
 	go func() {
 		for incomingMsg := range receiver.t.Deliver() {
 			log.Debug().Msgf("incoming msg[%T]: %s", incomingMsg, incomingMsg)
@@ -277,24 +281,26 @@ func (receiver *receiverNode) handleIncomingMsg() {
 }
 
 // handleLayerMsg stores the layer to its storage, and then sends ack to the leader.
-func (receiver *receiverNode) handleLayerMsg(layerMsg *layerMsg) {
+func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	receiver.mu.Lock()
 	defer receiver.mu.Unlock()
 
-	// todo
-	// - store layer
+	// store layer
 	receiver.layers[layerMsg.layerID] = &layerMsg.layer
 
-	// - send ack
+	// send ack
 	ackMsg := NewAckMsg(receiver.node.getMyID(), layerMsg.layerID)
-	receiver.t.Send(layerMsg.Src(), ackMsg)
+	err := receiver.t.Send(layerMsg.Src(), ackMsg)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to send ackMsg")
+	}
 }
 
-// announce() announces its existence (with the layers it has) to leader.
-func (receiver *receiverNode) announce() error {
+// Announce() announces its existence (with the layers it has) to leader.
+func (receiver *ReceiverNode) Announce() error {
 	receiver.mu.RLock()
 	// only send keys of the map
-	curLayerIDs := make(layerIDs, len(receiver.layers))
+	curLayerIDs := make(LayerIDs, len(receiver.layers))
 	for k := range receiver.layers {
 		curLayerIDs[k] = struct{}{}
 	}
@@ -306,10 +312,7 @@ func (receiver *receiverNode) announce() error {
 		return err
 	}
 
-	announceMsg := &announceMsg{
-		src:      receiver.node.getMyID(),
-		layerIDs: curLayerIDs,
-	}
+	announceMsg := NewAnnounceMsg(receiver.node.getMyID(), curLayerIDs)
 
 	// todo: conversion of a nodeID to addr
 	err = receiver.t.Send(fmt.Sprint(nextHop), announceMsg)
