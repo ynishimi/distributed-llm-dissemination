@@ -69,10 +69,10 @@ func (m *ackMsg) String() string {
 type layerMsg struct {
 	src     NodeID
 	layerID LayerID
-	layer   layer
+	layer   Layer
 }
 
-func NewLayerMsg(src NodeID, layerID LayerID, layer layer) *layerMsg {
+func NewLayerMsg(src NodeID, layerID LayerID, layer Layer) *layerMsg {
 	return &layerMsg{
 		src:     src,
 		layerID: layerID,

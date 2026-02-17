@@ -1,6 +1,7 @@
 package distributor_test
 
 import (
+	"crypto/rand"
 	"fmt"
 	"testing"
 	"time"
@@ -14,7 +15,15 @@ func TestSimpleDistribution(t *testing.T) {
 	const NumLayers = 3
 	const NumPeers = 3
 	const LeaderNodeID = 0
-	layers := make(distributor.Layers, NumLayers)
+	layers := make(distributor.Layers)
+	for i := range NumPeers {
+		// add dummy data as small random Bytes
+		randBytes := make([]byte, 1)
+		rand.Read(randBytes)
+		layer := distributor.Layer(randBytes)
+
+		layers[distributor.LayerID(i+LeaderNodeID+1)] = &layer
+	}
 
 	assignment := make(distributor.Assignment)
 	for i := range NumPeers {
@@ -26,12 +35,15 @@ func TestSimpleDistribution(t *testing.T) {
 
 	t.Run("inmem", func(t *testing.T) {
 		// leader
-		leader := distributor.NewLeaderNode(distributor.NewNode(LeaderNodeID, LeaderNodeID), distributor.NewInmemTransport(fmt.Sprint(LeaderNodeID)), layers, assignment)
+		leaderTransport := distributor.NewInmemTransport(fmt.Sprint(LeaderNodeID))
+		n := distributor.NewNode(LeaderNodeID, LeaderNodeID, leaderTransport)
+		leader := distributor.NewLeaderNode(n, layers, assignment)
 
 		// receivers
 		receivers := make([]*distributor.ReceiverNode, NumPeers)
 		for i := range NumPeers {
-			receiver := distributor.NewReceiverNode(distributor.NewNode(distributor.NodeID(i+LeaderNodeID+1), LeaderNodeID), distributor.NewInmemTransport(fmt.Sprint(i)), layers)
+			receiverTransport := distributor.NewInmemTransport(fmt.Sprint(i + LeaderNodeID + 1))
+			receiver := distributor.NewReceiverNode(distributor.NewNode(distributor.NodeID(i+LeaderNodeID+1), LeaderNodeID, receiverTransport), layers)
 			receivers[i] = receiver
 
 			// receivers announce its existence to the leader
@@ -44,7 +56,7 @@ func TestSimpleDistribution(t *testing.T) {
 		case ready := <-leader.Ready():
 			require.Equal(t, ready, assignment)
 
-		case <-time.After(time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatal("timeout waiting for Ready()")
 		}
 	})

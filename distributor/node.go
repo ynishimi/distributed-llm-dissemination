@@ -17,15 +17,20 @@ type node interface {
 	// returns next hop according to the routing table
 	getNextHop(goal NodeID) (NodeID, error)
 
-	// Adds a node
-	addNode(goal NodeID, nextHop NodeID, remainingHops uint)
+	// Adds a node and connects to it using transport layer
+	addNode(goal NodeID)
+	// adds a remote node to the routing table
+	addRoutingTable(goal NodeID, nextHop NodeID, remainingHops uint)
 	// Updates nodeID of leader
 	updateLeader(nodeID NodeID) error
+	// Returns transport
+	GetTransport() Transport
 }
 
 type n struct {
 	myID     NodeID
 	leaderID NodeID
+	t        Transport
 
 	// todo: accept multiple values? (for indirect loading)
 	routingTable map[NodeID]routingInfo
@@ -34,15 +39,18 @@ type n struct {
 }
 
 // Creates a new node.
-func NewNode(myID NodeID, leaderID NodeID) *n {
+func NewNode(myID NodeID, leaderID NodeID, t Transport) *n {
 	newNode := &n{
 		myID:         myID,
 		leaderID:     leaderID,
+		t:            t,
 		routingTable: make(map[NodeID]routingInfo),
 	}
 
+	// add myself
+	newNode.addNode(myID)
 	// add leader
-	newNode.addNode(leaderID, leaderID, 1)
+	newNode.addNode(leaderID)
 
 	return newNode
 }
@@ -76,7 +84,19 @@ func (n *n) getNextHop(goalID NodeID) (NodeID, error) {
 }
 
 // adds node
-func (n *n) addNode(goal NodeID, nextHop NodeID, remainingHops uint) {
+func (n *n) addNode(goal NodeID) {
+	// add it to routing table
+	n.addRoutingTable(goal, goal, 1)
+
+	// tell it to the transport layer
+	log.Debug().Msgf("%v: connecting to %v", n.myID, goal)
+	if err := n.GetTransport().Connect(fmt.Sprint(goal)); err != nil {
+		log.Debug().Err(err).Msgf("failed to connect to %v", goal)
+	}
+}
+
+// adds node that is not directly connected to itself
+func (n *n) addRoutingTable(goal NodeID, nextHop NodeID, remainingHops uint) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -101,13 +121,17 @@ func (n *n) updateLeader(leaderID NodeID) error {
 	return nil
 }
 
+func (n *n) GetTransport() Transport {
+	return n.t
+}
+
 type NodeID uint
 type LayerID uint
 
 // set of LayerIDs
 type LayerIDs map[LayerID]struct{}
 
-type Layers map[LayerID]*layer
+type Layers map[LayerID]*Layer
 
 type routingInfo struct {
 	nextHop       NodeID
@@ -119,8 +143,8 @@ type Assignment map[NodeID]LayerIDs
 
 type status map[NodeID]LayerIDs
 
-// content of layer
-type layer []byte
+// content of Layer
+type Layer []byte
 
 func (l LayerIDs) String() string {
 	layerIds := make([]LayerID, 0, len(l))
@@ -144,22 +168,25 @@ type leader interface {
 
 type LeaderNode struct {
 	node
-	t         Transport
-	layers    Layers
-	a         Assignment
-	s         status
-	readyChan chan Assignment
-	mu        sync.RWMutex
+	layers     Layers
+	assignment Assignment
+	status     status
+	readyChan  chan Assignment
+	mu         sync.RWMutex
 }
 
-func NewLeaderNode(node node, t Transport, layers Layers, a Assignment) *LeaderNode {
+func NewLeaderNode(node node, layers Layers, assignment Assignment) *LeaderNode {
+	// initialize values (map of layerIDs) for each nodeID
+	s := make(status, len(assignment))
+	for NodeID := range assignment {
+		s[NodeID] = make(LayerIDs)
+	}
 	leaderNode := &LeaderNode{
-		node:      node,
-		t:         t,
-		layers:    layers,
-		a:         a,
-		s:         make(status),
-		readyChan: make(chan Assignment),
+		node:       node,
+		layers:     layers,
+		assignment: assignment,
+		status:     s,
+		readyChan:  make(chan Assignment),
 	}
 
 	leaderNode.handleIncomingMsg()
@@ -170,7 +197,7 @@ func NewLeaderNode(node node, t Transport, layers Layers, a Assignment) *LeaderN
 // handle msg
 func (leader *LeaderNode) handleIncomingMsg() {
 	go func() {
-		for incomingMsg := range leader.t.Deliver() {
+		for incomingMsg := range leader.GetTransport().Deliver() {
 			log.Debug().Msgf("incoming msg[%T]: %s", incomingMsg, incomingMsg)
 			switch v := incomingMsg.(type) {
 			// registers the peer
@@ -190,28 +217,29 @@ func (leader *LeaderNode) handleIncomingMsg() {
 
 // handleAnnounceMsg registers a peer and starts sending the requested layers.
 func (leader *LeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
-	leader.node.addNode(announceMsg.src, announceMsg.src, 1)
+	leader.node.addNode(announceMsg.src)
 
+	// todo: the leader should wait until n nodes are connected
 	src := announceMsg.src
-	for layerID := range announceMsg.layerIDs {
-		layer := leader.layers[layerID]
-		err := leader.sendLayer(src, &layerID, layer)
+
+	leader.mu.RLock()
+	layerIDs := leader.assignment[src]
+	leader.mu.RUnlock()
+	for layerID := range layerIDs {
+		layer, ok := leader.layers[layerID]
+		if !ok {
+			log.Warn().Msgf("no layers found for layerID:%v", layerID)
+		}
+		err := leader.sendLayer(src, layerID, layer)
 		if err != nil {
 			log.Error().Err(err).Msgf("couldn't send a layer %v", layerID)
 		}
 	}
 }
-
-// func (leader *LeaderNode) addNode(goal NodeID, nextHop NodeID, remainingHops uint) error {
-// 	// adds it to node
-// 	leader.node.addNode(goal, nextHop, remainingHops)
-
-// 	return nil
-// }
-
-func (leader *LeaderNode) sendLayer(dest NodeID, layerID *LayerID, layer *layer) error {
-	layerMsg := NewLayerMsg(leader.node.getMyID(), *layerID, *layer)
-	err := leader.t.Send(fmt.Sprint(dest), layerMsg)
+func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layer *Layer) error {
+	log.Debug().Msgf("sending layer %v", layerID)
+	layerMsg := NewLayerMsg(leader.node.getMyID(), layerID, *layer)
+	err := leader.GetTransport().Send(fmt.Sprint(dest), layerMsg)
 	return err
 }
 
@@ -219,15 +247,15 @@ func (leader *LeaderNode) sendLayer(dest NodeID, layerID *LayerID, layer *layer)
 func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	leader.mu.Lock()
 
-	curStatus := leader.s[ackMsg.src]
+	curStatus := leader.status[ackMsg.src]
 	// add the layer to current status
 	curStatus[ackMsg.layerID] = struct{}{}
 
 	// checks if the assignment is completed
-	if reflect.DeepEqual(leader.s, leader.a) {
+	if reflect.DeepEqual(leader.status, status(leader.assignment)) {
 		leader.mu.Unlock()
 		// notify the assignment to be ready
-		leader.readyChan <- leader.a
+		leader.readyChan <- leader.assignment
 		return
 	}
 
@@ -246,15 +274,13 @@ type receiver interface {
 
 type ReceiverNode struct {
 	node
-	t      Transport
 	layers Layers
 	mu     sync.RWMutex
 }
 
-func NewReceiverNode(node node, t Transport, layers Layers) *ReceiverNode {
+func NewReceiverNode(node node, layers Layers) *ReceiverNode {
 	receiverNode := &ReceiverNode{
 		node:   node,
-		t:      t,
 		layers: layers,
 	}
 
@@ -266,7 +292,7 @@ func NewReceiverNode(node node, t Transport, layers Layers) *ReceiverNode {
 // handle msg
 func (receiver *ReceiverNode) handleIncomingMsg() {
 	go func() {
-		for incomingMsg := range receiver.t.Deliver() {
+		for incomingMsg := range receiver.GetTransport().Deliver() {
 			log.Debug().Msgf("incoming msg[%T]: %s", incomingMsg, incomingMsg)
 			switch v := incomingMsg.(type) {
 			// receive layer
@@ -290,7 +316,7 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 
 	// send ack
 	ackMsg := NewAckMsg(receiver.node.getMyID(), layerMsg.layerID)
-	err := receiver.t.Send(layerMsg.Src(), ackMsg)
+	err := receiver.GetTransport().Send(layerMsg.Src(), ackMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to send ackMsg")
 	}
@@ -315,6 +341,6 @@ func (receiver *ReceiverNode) Announce() error {
 	announceMsg := NewAnnounceMsg(receiver.node.getMyID(), curLayerIDs)
 
 	// todo: conversion of a nodeID to addr
-	err = receiver.t.Send(fmt.Sprint(nextHop), announceMsg)
+	err = receiver.GetTransport().Send(fmt.Sprint(nextHop), announceMsg)
 	return err
 }

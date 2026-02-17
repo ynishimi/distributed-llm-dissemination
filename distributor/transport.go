@@ -6,6 +6,7 @@ import (
 )
 
 type Transport interface {
+	Connect(addr string) error
 	Send(dest string, message Message) error
 	Broadcast(message Message) error
 	Deliver() <-chan Message
@@ -19,7 +20,7 @@ func NewTcpTransport() *TcpTransport {
 	return &TcpTransport{}
 }
 
-// todo: Send, Broadcast, Deliver, GetAddress
+// todo: Connect, Send, Broadcast, Deliver, GetAddress
 
 // Implementation of Inmemory Transport (only for testing purpose. Copied from https://github.com/ynishimi/paxos-tob)
 type InmemoryTransport struct {
@@ -29,6 +30,12 @@ type InmemoryTransport struct {
 	mu              sync.RWMutex
 }
 
+var (
+	// global registry (addr (name of the node this time) - instance of the transport of node)
+	inmemRegistry   = make(map[string]*InmemoryTransport)
+	inmemRegistryMu sync.Mutex
+)
+
 // creates an instance of InmemoryTransport
 func NewInmemTransport(addr string) *InmemoryTransport {
 	t := &InmemoryTransport{
@@ -37,7 +44,32 @@ func NewInmemTransport(addr string) *InmemoryTransport {
 		peers:           make(map[string]*InmemoryTransport),
 	}
 	t.peers[addr] = t
+
+	// adds it to the global register as well
+	inmemRegistryMu.Lock()
+	inmemRegistry[addr] = t
+	inmemRegistryMu.Unlock()
+
 	return t
+}
+
+// Connect etablishes the connection.
+func (t *InmemoryTransport) Connect(addr string) error {
+	// search the instance of the addr using the global registry
+	inmemRegistryMu.Lock()
+	peer, ok := inmemRegistry[addr]
+	inmemRegistryMu.Unlock()
+
+	if !ok {
+		return fmt.Errorf("peer %s not found", addr)
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.peers[addr] = peer
+
+	return nil
 }
 
 func (t *InmemoryTransport) AddPeer(newPeer *InmemoryTransport) {

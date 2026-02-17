@@ -15,7 +15,9 @@ func TestInmemoryTransportSendSingle(t *testing.T) {
 	t.Run("inmem", func(t *testing.T) {
 		p1 := distributor.NewInmemTransport("peer1")
 		p2 := distributor.NewInmemTransport("peer2")
-		p1.AddPeer(p2)
+		if err := p1.Connect(p2.GetAddress()); err != nil {
+			t.Fatal(err)
+		}
 
 		p1.Send(p2.GetAddress(), testutil.NewTestMsg(p1.GetAddress(), "hi from peer1"))
 
@@ -61,7 +63,9 @@ func TestInmemoryTransportSendThree(t *testing.T) {
 	t.Run("inmem", func(t *testing.T) {
 		p1 := distributor.NewInmemTransport("peer1")
 		p2 := distributor.NewInmemTransport("peer2")
-		p1.AddPeer(p2)
+		if err := p1.Connect(p2.GetAddress()); err != nil {
+			t.Fatal(err)
+		}
 		sendThree(t, p1.Send, p1.GetAddress(), p2.Deliver())
 	})
 }
@@ -80,7 +84,9 @@ func TestInmemoryTransportBroadcastSingle(t *testing.T) {
 	t.Run("inmem", func(t *testing.T) {
 		p1 := distributor.NewInmemTransport("peer1")
 		p2 := distributor.NewInmemTransport("peer2")
-		p1.AddPeer(p2)
+		if err := p1.Connect(p2.GetAddress()); err != nil {
+			t.Fatal(err)
+		}
 		broadcastSingle(t, p1.Broadcast, p1.GetAddress(), p1.Deliver(), p2.Deliver())
 	})
 }
