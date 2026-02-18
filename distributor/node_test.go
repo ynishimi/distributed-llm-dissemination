@@ -35,14 +35,14 @@ func TestSimpleDistribution(t *testing.T) {
 
 	t.Run("inmem", func(t *testing.T) {
 		// leader
-		leaderTransport := distributor.NewInmemTransport(fmt.Sprint(LeaderNodeID))
+		leaderTransport := distributor.NewInmemTransport(fmt.Sprint(LeaderNodeID), NumPeers)
 		n := distributor.NewNode(LeaderNodeID, LeaderNodeID, leaderTransport)
 		leader := distributor.NewLeaderNode(n, layers, assignment)
 
 		// receivers
 		receivers := make([]*distributor.ReceiverNode, NumPeers)
 		for i := range NumPeers {
-			receiverTransport := distributor.NewInmemTransport(fmt.Sprint(i + LeaderNodeID + 1))
+			receiverTransport := distributor.NewInmemTransport(fmt.Sprint(i+LeaderNodeID+1), NumPeers)
 			receiver := distributor.NewReceiverNode(distributor.NewNode(distributor.NodeID(i+LeaderNodeID+1), LeaderNodeID, receiverTransport), layers)
 			receivers[i] = receiver
 

@@ -217,10 +217,10 @@ func (leader *LeaderNode) handleIncomingMsg() {
 
 // handleAnnounceMsg registers a peer and starts sending the requested layers.
 func (leader *LeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
-	leader.node.addNode(announceMsg.src)
+	leader.node.addNode(announceMsg.SrcID)
 
 	// todo: the leader should wait until n nodes are connected
-	src := announceMsg.src
+	src := announceMsg.SrcID
 
 	leader.mu.RLock()
 	layerIDs := leader.assignment[src]
@@ -247,9 +247,9 @@ func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layer *Layer) 
 func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	leader.mu.Lock()
 
-	curStatus := leader.status[ackMsg.src]
+	curStatus := leader.status[ackMsg.SrcID]
 	// add the layer to current status
-	curStatus[ackMsg.layerID] = struct{}{}
+	curStatus[ackMsg.LayerID] = struct{}{}
 
 	// checks if the assignment is completed
 	if reflect.DeepEqual(leader.status, status(leader.assignment)) {
@@ -312,10 +312,10 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	defer receiver.mu.Unlock()
 
 	// store layer
-	receiver.layers[layerMsg.layerID] = &layerMsg.layer
+	receiver.layers[layerMsg.MsgLayerID] = &layerMsg.LayerData
 
 	// send ack
-	ackMsg := NewAckMsg(receiver.node.getMyID(), layerMsg.layerID)
+	ackMsg := NewAckMsg(receiver.node.getMyID(), layerMsg.MsgLayerID)
 	err := receiver.GetTransport().Send(layerMsg.Src(), ackMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to send ackMsg")

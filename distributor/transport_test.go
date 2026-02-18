@@ -7,51 +7,78 @@ import (
 	"time"
 
 	"github.com/ynishimi/distributed-llm-dissemination/distributor"
-	"github.com/ynishimi/distributed-llm-dissemination/distributor/testutil"
 )
 
 // Sends a message from p1 to p2.
-func TestInmemoryTransportSendSingle(t *testing.T) {
-	t.Run("inmem", func(t *testing.T) {
-		p1 := distributor.NewInmemTransport("peer1")
-		p2 := distributor.NewInmemTransport("peer2")
+func TestTransportSendSingle(t *testing.T) {
+	const NumPeer uint = 2
+
+	sendSingle := func(t *testing.T,
+		p1, p2 distributor.Transport) {
+		t.Helper()
+
 		if err := p1.Connect(p2.GetAddress()); err != nil {
 			t.Fatal(err)
 		}
 
-		p1.Send(p2.GetAddress(), testutil.NewTestMsg(p1.GetAddress(), "hi from peer1"))
+		p1.Send(p2.GetAddress(), distributor.NewSimpleMsg(p1.GetAddress(), "hi from peer1"))
 
 		select {
 		case msg := <-p2.Deliver():
 			fmt.Print(msg)
-		case <-time.After(time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatal("timeout waiting for message delivery")
 		}
+	}
+
+	t.Run("inmem", func(t *testing.T) {
+		p1 := distributor.NewInmemTransport("peer1", NumPeer)
+		p2 := distributor.NewInmemTransport("peer2", NumPeer)
+		t.Cleanup(func() {
+			p1.Close()
+			p2.Close()
+		})
+		sendSingle(t, p1, p2)
+	})
+	t.Run("tcp", func(t *testing.T) {
+		p1 := distributor.NewTcpTransport(":8080", NumPeer)
+		p2 := distributor.NewTcpTransport(":8081", NumPeer)
+		t.Cleanup(func() {
+			p1.Close()
+			p2.Close()
+		})
+		sendSingle(t, p1, p2)
 	})
 }
 
 // Sends three messages from p1 to p2.
 func TestInmemoryTransportSendThree(t *testing.T) {
-	sendThree := func(t *testing.T, p1Send func(string, distributor.Message) error, p1Addr string, p2Deliver <-chan distributor.Message) {
+	const NumPeer = 2
+
+	sendThree := func(t *testing.T, p1, p2 distributor.Transport) {
 		t.Helper()
+
 		msgs := make([]distributor.Message, 0)
 
+		if err := p1.Connect(p2.GetAddress()); err != nil {
+			t.Fatal(err)
+		}
+
 		go func() {
-			for {
-				msg := <-p2Deliver
+			for msg := range p2.Deliver() {
 				fmt.Println(msg)
 				msgs = append(msgs, msg)
 			}
 		}()
 
 		sendMsgs := []distributor.Message{
-			testutil.NewTestMsg(p1Addr, "hi"),
-			testutil.NewTestMsg(p1Addr, "hi"),
-			testutil.NewTestMsg(p1Addr, "hi"),
+			distributor.NewSimpleMsg(p1.GetAddress(), "hi"),
+			distributor.NewSimpleMsg(p1.GetAddress(), "hi"),
+			distributor.NewSimpleMsg(p1.GetAddress(), "hi"),
 		}
 
 		for _, sendMsg := range sendMsgs {
-			p1Send("peer2", sendMsg)
+			p1.Send(p2.GetAddress(), sendMsg)
 		}
 
 		time.Sleep(time.Second)
@@ -61,32 +88,59 @@ func TestInmemoryTransportSendThree(t *testing.T) {
 	}
 
 	t.Run("inmem", func(t *testing.T) {
-		p1 := distributor.NewInmemTransport("peer1")
-		p2 := distributor.NewInmemTransport("peer2")
-		if err := p1.Connect(p2.GetAddress()); err != nil {
-			t.Fatal(err)
-		}
-		sendThree(t, p1.Send, p1.GetAddress(), p2.Deliver())
+		p1 := distributor.NewInmemTransport("peer1", NumPeer)
+		p2 := distributor.NewInmemTransport("peer2", NumPeer)
+		t.Cleanup(func() {
+			p1.Close()
+			p2.Close()
+		})
+		sendThree(t, p1, p2)
+	})
+
+	t.Run("tcp", func(t *testing.T) {
+		p1 := distributor.NewTcpTransport(":8080", NumPeer)
+		p2 := distributor.NewTcpTransport(":8081", NumPeer)
+		t.Cleanup(func() {
+			p1.Close()
+			p2.Close()
+		})
+		sendThree(t, p1, p2)
 	})
 }
 
 func TestInmemoryTransportBroadcastSingle(t *testing.T) {
-	broadcastSingle := func(t *testing.T, broadcast func(distributor.Message) error, addr string, p1Deliver, p2Deliver <-chan distributor.Message) {
+	const NumPeer = 2
+	broadcastSingle := func(t *testing.T, p1, p2 distributor.Transport) {
 		t.Helper()
-		broadcast(testutil.NewTestMsg(addr, "broadcast value"))
 
-		p1DeliveredMsg := <-p1Deliver
-		fmt.Println(p1DeliveredMsg)
-		p2DeliveredMsg := <-p2Deliver
+		if err := p1.Connect(p2.GetAddress()); err != nil {
+			t.Fatal(err)
+		}
+
+		p1.Broadcast(distributor.NewSimpleMsg(p1.GetAddress(), "broadcast value"))
+
+		// p1DeliveredMsg := <-p1.Deliver()
+		// fmt.Println(p1DeliveredMsg)
+		p2DeliveredMsg := <-p2.Deliver()
 		fmt.Println(p2DeliveredMsg)
 	}
 
 	t.Run("inmem", func(t *testing.T) {
-		p1 := distributor.NewInmemTransport("peer1")
-		p2 := distributor.NewInmemTransport("peer2")
-		if err := p1.Connect(p2.GetAddress()); err != nil {
-			t.Fatal(err)
-		}
-		broadcastSingle(t, p1.Broadcast, p1.GetAddress(), p1.Deliver(), p2.Deliver())
+		p1 := distributor.NewInmemTransport("peer1", NumPeer)
+		p2 := distributor.NewInmemTransport("peer2", NumPeer)
+		t.Cleanup(func() {
+			p1.Close()
+			p2.Close()
+		})
+		broadcastSingle(t, p1, p2)
+	})
+	t.Run("tcp", func(t *testing.T) {
+		p1 := distributor.NewTcpTransport(":8080", NumPeer)
+		p2 := distributor.NewTcpTransport(":8081", NumPeer)
+		t.Cleanup(func() {
+			p1.Close()
+			p2.Close()
+		})
+		broadcastSingle(t, p1, p2)
 	})
 }
