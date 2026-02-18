@@ -90,7 +90,7 @@ func (n *n) addNode(goal NodeID) {
 
 	// tell it to the transport layer
 	log.Debug().Msgf("%v: connecting to %v", n.myID, goal)
-	if err := n.GetTransport().Connect(fmt.Sprint(goal)); err != nil {
+	if err := n.GetTransport().Connect(goal); err != nil {
 		log.Debug().Err(err).Msgf("failed to connect to %v", goal)
 	}
 }
@@ -239,7 +239,7 @@ func (leader *LeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
 func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layer *Layer) error {
 	log.Debug().Msgf("sending layer %v", layerID)
 	layerMsg := NewLayerMsg(leader.node.getMyID(), layerID, *layer)
-	err := leader.GetTransport().Send(fmt.Sprint(dest), layerMsg)
+	err := leader.GetTransport().Send(dest, layerMsg)
 	return err
 }
 
@@ -316,7 +316,7 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 
 	// send ack
 	ackMsg := NewAckMsg(receiver.node.getMyID(), layerMsg.MsgLayerID)
-	err := receiver.GetTransport().Send(layerMsg.Src(), ackMsg)
+	err := receiver.GetTransport().Send(layerMsg.SrcID, ackMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to send ackMsg")
 	}
@@ -341,6 +341,6 @@ func (receiver *ReceiverNode) Announce() error {
 	announceMsg := NewAnnounceMsg(receiver.node.getMyID(), curLayerIDs)
 
 	// todo: conversion of a nodeID to addr
-	err = receiver.GetTransport().Send(fmt.Sprint(nextHop), announceMsg)
+	err = receiver.GetTransport().Send(nextHop, announceMsg)
 	return err
 }

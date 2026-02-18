@@ -10,8 +10,8 @@ import (
 )
 
 type Transport interface {
-	Connect(addr string) error
-	Send(dest string, message Message) error
+	Connect(addrID NodeID) error
+	Send(destID NodeID, message Message) error
 	Broadcast(message Message) error
 	Deliver() <-chan Message
 	GetAddress() string
@@ -24,14 +24,21 @@ type TcpTransport struct {
 	ln              net.Listener
 	incomingMsgChan chan Message
 	conns           map[string]net.Conn
-	mu              sync.RWMutex
+
+	addrRegistory AddrRegistory
+
+	mu sync.RWMutex
 }
 
-func NewTcpTransport(addr string, bufSize uint) *TcpTransport {
+// AddrRegistory stores the mapping of NodeID and its addr.
+type AddrRegistory map[NodeID]string
+
+func NewTcpTransport(addr string, bufSize uint, addrRegistory map[NodeID]string) *TcpTransport {
 	t := &TcpTransport{
 		addr:            addr,
 		incomingMsgChan: make(chan Message, bufSize),
 		conns:           make(map[string]net.Conn),
+		addrRegistory:   addrRegistory,
 	}
 
 	// start listening
@@ -41,6 +48,7 @@ func NewTcpTransport(addr string, bufSize uint) *TcpTransport {
 		return t
 	}
 	t.ln = ln
+	log.Debug().Str("addr", addr).Msg("start listening")
 
 	// wait for the connection
 	go func() {
@@ -85,7 +93,14 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 }
 
 // Connect tries to connect to the node which has the address using Dial.
-func (t *TcpTransport) Connect(addr string) error {
+func (t *TcpTransport) Connect(addrID NodeID) error {
+	t.mu.RLock()
+	addr, ok := t.addrRegistory[addrID]
+	t.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("addr of %d does not exist", addrID)
+	}
+
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		return err
@@ -99,7 +114,15 @@ func (t *TcpTransport) Connect(addr string) error {
 	return nil
 }
 
-func (t *TcpTransport) Send(dest string, message Message) error {
+func (t *TcpTransport) Send(destID NodeID, message Message) error {
+	t.mu.RLock()
+	dest, ok := t.addrRegistory[destID]
+	t.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("addr of %d does not exist", destID)
+	}
+
 	t.mu.RLock()
 	conn, ok := t.conns[dest]
 	t.mu.RUnlock()
@@ -107,6 +130,7 @@ func (t *TcpTransport) Send(dest string, message Message) error {
 	if !ok {
 		return fmt.Errorf("conn not found for addr %v", dest)
 	}
+
 	return t.sendTransportMsg(conn, message)
 }
 func (t *TcpTransport) Broadcast(message Message) error {
@@ -198,8 +222,9 @@ func NewInmemTransport(addr string, bufSize uint) *InmemoryTransport {
 }
 
 // Connect etablishes the connection.
-func (t *InmemoryTransport) Connect(addr string) error {
+func (t *InmemoryTransport) Connect(addrID NodeID) error {
 	// search the instance of the addr using the global registry
+	addr := fmt.Sprint(addrID)
 	inmemRegistryMu.Lock()
 	peer, ok := inmemRegistry[addr]
 	inmemRegistryMu.Unlock()
@@ -223,8 +248,9 @@ func (t *InmemoryTransport) AddPeer(newPeer *InmemoryTransport) {
 	t.peers[newPeer.addr] = newPeer
 }
 
-func (t *InmemoryTransport) Send(dest string, message Message) error {
+func (t *InmemoryTransport) Send(destID NodeID, message Message) error {
 	// send message to a dest's incomingMessage channel
+	dest := fmt.Sprint(destID)
 	t.mu.RLock()
 	destTransport, ok := t.peers[dest]
 	t.mu.RUnlock()
