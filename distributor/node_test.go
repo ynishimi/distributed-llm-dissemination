@@ -66,7 +66,7 @@ func createSimpleAssignment(NumReceivers, LeaderNodeID int) *distributor.Assignm
 }
 
 // execDistribution executes the distribution of the layers, and notifies when it starts distribution.
-func execDistribution(t testing.TB, assignment *distributor.Assignment, leader *distributor.LeaderNode, receivers []*distributor.ReceiverNode) <-chan distributor.Assignment {
+func execDistribution(t testing.TB, assignment *distributor.Assignment, leader *distributor.LeaderNode, receivers []*distributor.ReceiverNode) (<-chan distributor.Assignment, <-chan distributor.Assignment) {
 	for _, receiver := range receivers {
 		// receivers announce its existence to the leader
 		err := receiver.Announce()
@@ -75,34 +75,43 @@ func execDistribution(t testing.TB, assignment *distributor.Assignment, leader *
 
 	// leader should start sending layers after collecting annoucements from receivers
 	var start distributor.Assignment
-	select {
-	case start = <-leader.StartDistribution():
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for announcements from receivers")
-	}
-
-	// leader should send layers; wait for the leader to collect acks from receivers
-	select {
-	case ready := <-leader.Ready():
-		require.Equal(t, ready, *assignment)
-
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for Ready()")
-	}
+	var ready distributor.Assignment
 
 	// on getting StartDistribution, distributes notifies its start
 	startChan := make(chan distributor.Assignment, 1)
-	startChan <- start
-	return startChan
+	readyChan := make(chan distributor.Assignment, 1)
+
+	go func() {
+		select {
+		case start = <-leader.StartDistribution():
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for announcements from receivers")
+		}
+
+		startChan <- start
+
+		// leader should send layers; wait for the leader to collect acks from receivers
+		select {
+		case ready = <-leader.Ready():
+			require.Equal(t, ready, *assignment)
+
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for Ready()")
+		}
+
+		readyChan <- ready
+
+	}()
+
+	return startChan, readyChan
 }
 
+// createTcpTransports creates a slice of TCP transports.
 func createTcpTransports(NumPeers, LeaderNodeID int) []distributor.Transport {
 	addrs := make(distributor.AddrRegistory, NumPeers)
 	transports := make([]distributor.Transport, NumPeers)
 	for i := range NumPeers {
 		addrs[distributor.NodeID(i)] = fmt.Sprintf(":%d", 8080+LeaderNodeID+i)
-	}
-	for i := range NumPeers {
 		transports[i] = distributor.NewTcpTransport(addrs[distributor.NodeID(i)], uint(NumPeers), addrs)
 	}
 
@@ -127,7 +136,17 @@ func TestSimpleDistribution(t *testing.T) {
 		}
 
 		leader, receivers := createLeaderAndEmptyReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers)
-		execDistribution(t, assignment, leader, receivers)
+		_, ready := execDistribution(t, assignment, leader, receivers)
+
+		select {
+		case <-ready:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for message delivery")
+		}
+
+		for _, tr := range transports {
+			tr.Close()
+		}
 	})
 	t.Run("tcp", func(t *testing.T) {
 		transports := createTcpTransports(NumPeers, LeaderNodeID)
@@ -138,7 +157,17 @@ func TestSimpleDistribution(t *testing.T) {
 		})
 
 		leader, receivers := createLeaderAndEmptyReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers)
-		execDistribution(t, assignment, leader, receivers)
+		_, ready := execDistribution(t, assignment, leader, receivers)
+
+		select {
+		case <-ready:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for message delivery")
+		}
+
+		for _, tr := range transports {
+			tr.Close()
+		}
 	})
 }
 
@@ -155,13 +184,18 @@ func BenchmarkSimpleDistributionTcp(b *testing.B) {
 	for b.Loop() {
 		// TCP transport
 		transports := createTcpTransports(NumPeers, LeaderNodeID)
-		b.Cleanup(func() {
-			for _, tr := range transports {
-				tr.Close()
-			}
-		})
 
 		leader, receivers := createLeaderAndEmptyReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers)
-		execDistribution(b, assignment, leader, receivers)
+		start, ready := execDistribution(b, assignment, leader, receivers)
+
+		// start the timer
+		<-start
+		b.ResetTimer()
+
+		<-ready
+
+		for _, tr := range transports {
+			tr.Close()
+		}
 	}
 }
