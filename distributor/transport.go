@@ -2,7 +2,9 @@ package distributor
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 
@@ -55,8 +57,11 @@ func NewTcpTransport(addr string, bufSize uint, addrRegistory map[NodeID]string)
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
-				log.Error().Err(err).Msg("failed to accept a new connection")
-				// listener was closed, stop the loop
+				if errors.Is(err, net.ErrClosed) {
+					log.Debug().Msg("listener closed")
+				} else {
+					log.Error().Err(err).Msg("failed to accept a new connection")
+				}
 				return
 			}
 			log.Debug().Msg("conn established")
@@ -76,7 +81,12 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 		var m TransportMsg
 		err := d.Decode(&m)
 		if err != nil {
-			log.Error().Err(err).Msg("failed to decode envelope")
+			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+				log.Debug().Msg("connection closed")
+			} else {
+				log.Error().Err(err).Msg("failed to decode envelope")
+			}
+			return
 		}
 
 		// notifies the message to upper layer, removing transportMsg part
