@@ -127,6 +127,9 @@ func (n *n) GetTransport() Transport {
 type NodeID uint
 type LayerID uint
 
+// set of NodeIDs
+type NodeIDs map[NodeID]struct{}
+
 // set of LayerIDs
 type LayerIDs map[LayerID]struct{}
 
@@ -176,8 +179,8 @@ type LeaderNode struct {
 	mu                    sync.RWMutex
 }
 
-func NewLeaderNode(node node, layers Layers, assignment Assignment) *LeaderNode {
-	leaderNode := &LeaderNode{
+func newLeaderNodeBase(node node, layers Layers, assignment Assignment) *LeaderNode {
+	return &LeaderNode{
 		node:                  node,
 		layers:                layers,
 		assignment:            assignment,
@@ -185,6 +188,10 @@ func NewLeaderNode(node node, layers Layers, assignment Assignment) *LeaderNode 
 		startDistributionChan: make(chan Assignment),
 		readyChan:             make(chan Assignment),
 	}
+}
+
+func NewLeaderNode(node node, layers Layers, assignment Assignment) *LeaderNode {
+	leaderNode := newLeaderNodeBase(node, layers, assignment)
 
 	leaderNode.handleIncomingMsg()
 
@@ -263,6 +270,7 @@ func (leader *LeaderNode) sendLayers() {
 		}
 	}
 }
+
 func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layer *Layer) error {
 	log.Debug().Msgf("sending layer %v", layerID)
 	layerMsg := NewLayerMsg(leader.node.getMyID(), layerID, *layer)
@@ -297,6 +305,140 @@ func (leader *LeaderNode) Ready() <-chan Assignment {
 	return leader.readyChan
 }
 
+// RetransmitLeaderNode has layer retransmission function.
+type RetransmitLeaderNode struct {
+	*LeaderNode
+	// layerOwners has owners of each layer.
+	layerOwners map[LayerID]NodeIDs
+}
+
+func NewRetransmitLeaderNode(node node, layers Layers, assignment Assignment) *RetransmitLeaderNode {
+	leaderBase := newLeaderNodeBase(node, layers, assignment)
+
+	// initialize each value of layerOwners
+	layerOwners := make(map[LayerID]NodeIDs, len(layers))
+	for layerID := range layers {
+		layerOwners[layerID] = make(NodeIDs)
+	}
+
+	retransmitLeader := &RetransmitLeaderNode{
+		LeaderNode:  leaderBase,
+		layerOwners: layerOwners,
+	}
+
+	retransmitLeader.handleIncomingMsg()
+
+	return retransmitLeader
+}
+
+// handle msg
+func (rLeader *RetransmitLeaderNode) handleIncomingMsg() {
+	go func() {
+		for incomingMsg := range rLeader.GetTransport().Deliver() {
+			log.Debug().Msgf("incoming msg[%T]: %s", incomingMsg, incomingMsg)
+			switch v := incomingMsg.(type) {
+			case *announceMsg:
+				go rLeader.handleAnnounceMsg(v)
+			case *ackMsg:
+				go rLeader.handleAckMsg(v)
+			}
+		}
+	}()
+}
+
+// handleAnnounceMsg registers a peer and starts sending the requested layers.
+// In this case,
+func (rLeader *RetransmitLeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
+
+	rLeader.mu.Lock()
+	// checks if the announcement is already received
+	_, ok := rLeader.status[announceMsg.SrcID]
+
+	if !ok {
+		// initialize the value (map of layers the receiver already has)
+		rLeader.status[announceMsg.SrcID] = make(LayerIDs)
+		// add the receiver as neighbor
+		rLeader.node.addNode(announceMsg.SrcID)
+	}
+	rLeader.mu.Unlock()
+
+	rLeader.mu.RLock()
+	a := rLeader.assignment
+	s := rLeader.status
+	rLeader.mu.RUnlock()
+	// checks if all nodes in the assignment are connected by comparing the keys of assignment and status
+	for nodeID := range a {
+		_, ok := s[nodeID]
+		if !ok {
+			return
+		}
+	}
+
+	// start sending layers
+	rLeader.startDistributionChan <- a
+
+	rLeader.sendLayers()
+}
+
+// This time, the leader node fills layerOwners map, and retransmit if possible.
+func (rLeader *RetransmitLeaderNode) sendLayers() {
+	rLeader.mu.Lock()
+	a := rLeader.assignment
+
+	// add entries to layerOwners
+	for nodeID, layerIDs := range a {
+		for layerID := range layerIDs {
+			owners, ok := rLeader.layerOwners[layerID]
+			if !ok {
+				log.Error().Msgf("layerOwners is not initialized for the key %v", layerID)
+			}
+			owners[nodeID] = struct{}{}
+			rLeader.layerOwners[layerID] = owners
+		}
+	}
+
+	lo := rLeader.layerOwners
+	rLeader.mu.Unlock()
+
+	for nodeID, layerIDs := range a {
+		for layerID := range layerIDs {
+			// if some receivers already has the layer, the leader sends retransmit message instead
+			if owners, ok := lo[layerID]; ok {
+				// this time, the leader simply chooses a random owner of the map
+				var owner NodeID
+				for o := range owners {
+					owner = o
+					break
+				}
+				// send retransmit msg
+				err := rLeader.sendRetransmit(layerID, owner, nodeID)
+				if err != nil {
+					log.Error().Err(err).Msgf("couldn't send retransmit of %v to owner %v", layerID, owner)
+				}
+			} else {
+				layer, ok := rLeader.layers[layerID]
+				if !ok {
+					log.Warn().Msgf("no layers found for layerID:%v", layerID)
+				}
+				err := rLeader.sendLayer(nodeID, layerID, layer)
+				if err != nil {
+					log.Error().Err(err).Msgf("couldn't send a layer %v", layerID)
+				}
+			}
+		}
+	}
+}
+
+// sendRetransmit sends retransmit msg that asks the owner of a layer to the new destination
+func (rLeader *RetransmitLeaderNode) sendRetransmit(layerID LayerID, owner NodeID, dest NodeID) error {
+	log.Debug().Msgf("sending retransmit %v", layerID)
+	// specifies the layer ID and the new dest.
+	transmitMsg := NewRetransmitMsg(rLeader.node.getMyID(), layerID, dest)
+	// yet the transmitMsg itself is sent to the owner, not the dest of the layer.
+	err := rLeader.GetTransport().Send(owner, transmitMsg)
+	return err
+}
+
 // receiver
 type receiver interface {
 	// announces its existence (with the layers it has) to leader
@@ -309,11 +451,15 @@ type ReceiverNode struct {
 	mu     sync.RWMutex
 }
 
-func NewReceiverNode(node node, layers Layers) *ReceiverNode {
-	receiverNode := &ReceiverNode{
+func newReceiverNodeBase(node node, layers Layers) *ReceiverNode {
+	return &ReceiverNode{
 		node:   node,
 		layers: layers,
 	}
+}
+
+func NewReceiverNode(node node, layers Layers) *ReceiverNode {
+	receiverNode := newReceiverNodeBase(node, layers)
 
 	receiverNode.handleIncomingMsg()
 
@@ -343,10 +489,10 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	defer receiver.mu.Unlock()
 
 	// store layer
-	receiver.layers[layerMsg.MsgLayerID] = &layerMsg.LayerData
+	receiver.layers[layerMsg.LayerID] = &layerMsg.LayerData
 
 	// send ack
-	ackMsg := NewAckMsg(receiver.node.getMyID(), layerMsg.MsgLayerID)
+	ackMsg := NewAckMsg(receiver.node.getMyID(), layerMsg.LayerID)
 	err := receiver.GetTransport().Send(layerMsg.SrcID, ackMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to send ackMsg")
@@ -374,4 +520,53 @@ func (receiver *ReceiverNode) Announce() error {
 	// todo: conversion of a nodeID to addr
 	err = receiver.GetTransport().Send(nextHop, announceMsg)
 	return err
+}
+
+// RetransmitReceiverNode has layer retransmission function.
+type RetransmitReceiverNode struct {
+	*ReceiverNode
+}
+
+func NewRetransmitReceiverNode(node node, layers Layers) *RetransmitReceiverNode {
+	receiverBase := newReceiverNodeBase(node, layers)
+
+	rReceiverNode := &RetransmitReceiverNode{
+		ReceiverNode: receiverBase,
+	}
+
+	rReceiverNode.handleIncomingMsg()
+
+	return rReceiverNode
+}
+
+// handle msg
+func (rReceiver *RetransmitReceiverNode) handleIncomingMsg() {
+	go func() {
+		for incomingMsg := range rReceiver.GetTransport().Deliver() {
+			log.Debug().Msgf("incoming msg[%T]: %s", incomingMsg, incomingMsg)
+			switch v := incomingMsg.(type) {
+			// receive layer
+			case *layerMsg:
+				go rReceiver.handleLayerMsg(v)
+
+			case *retransmitMsg:
+				go rReceiver.handleRetransmitMsg(v)
+				// todo: start the inference engine
+				// case *startupMsg:
+				// 	go receiver.handleStartupMsg(v)
+			}
+		}
+	}()
+}
+
+// handleRetransmitMsg sends specified layer to the destination.
+func (rReceiver *RetransmitReceiverNode) handleRetransmitMsg(retransmitMsg *retransmitMsg) error {
+	rReceiver.mu.RLock()
+	layer := rReceiver.layers[retransmitMsg.LayerID]
+	rReceiver.mu.RUnlock()
+
+	// send layer to dest.
+	// todo: should the receiver set its SrcID?
+	layerMsg := NewLayerMsg(retransmitMsg.SrcID, retransmitMsg.LayerID, *layer)
+	return rReceiver.GetTransport().Send(retransmitMsg.DestID, layerMsg)
 }
