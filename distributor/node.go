@@ -171,22 +171,20 @@ type LeaderNode struct {
 	layers     Layers
 	assignment Assignment
 	status     status
-	readyChan  chan Assignment
-	mu         sync.RWMutex
+	// startDistributionChan notifies the start of distribution.
+	startDistributionChan chan Assignment
+	readyChan             chan Assignment
+	mu                    sync.RWMutex
 }
 
 func NewLeaderNode(node node, layers Layers, assignment Assignment) *LeaderNode {
-	// initialize values (map of layerIDs) for each nodeID
-	s := make(status, len(assignment))
-	for NodeID := range assignment {
-		s[NodeID] = make(LayerIDs)
-	}
 	leaderNode := &LeaderNode{
-		node:       node,
-		layers:     layers,
-		assignment: assignment,
-		status:     s,
-		readyChan:  make(chan Assignment),
+		node:                  node,
+		layers:                layers,
+		assignment:            assignment,
+		status:                make(status, len(assignment)),
+		startDistributionChan: make(chan Assignment),
+		readyChan:             make(chan Assignment),
 	}
 
 	leaderNode.handleIncomingMsg()
@@ -217,22 +215,52 @@ func (leader *LeaderNode) handleIncomingMsg() {
 
 // handleAnnounceMsg registers a peer and starts sending the requested layers.
 func (leader *LeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
-	leader.node.addNode(announceMsg.SrcID)
 
-	// todo: the leader should wait until n nodes are connected
-	src := announceMsg.SrcID
+	leader.mu.Lock()
+	// checks if the announcement is already received
+	_, ok := leader.status[announceMsg.SrcID]
+
+	if !ok {
+		// initialize the value (map of layers the receiver already has)
+		leader.status[announceMsg.SrcID] = make(LayerIDs)
+		// add the receiver as neighbor
+		leader.node.addNode(announceMsg.SrcID)
+	}
+	leader.mu.Unlock()
 
 	leader.mu.RLock()
-	layerIDs := leader.assignment[src]
+	a := leader.assignment
+	s := leader.status
 	leader.mu.RUnlock()
-	for layerID := range layerIDs {
-		layer, ok := leader.layers[layerID]
+	// checks if all nodes in the assignment are connected by comparing the keys of assignment and status
+	for nodeID := range a {
+		_, ok := s[nodeID]
 		if !ok {
-			log.Warn().Msgf("no layers found for layerID:%v", layerID)
+			return
 		}
-		err := leader.sendLayer(src, layerID, layer)
-		if err != nil {
-			log.Error().Err(err).Msgf("couldn't send a layer %v", layerID)
+	}
+
+	// start sending layers
+	leader.startDistributionChan <- a
+
+	leader.sendLayers()
+}
+
+func (leader *LeaderNode) sendLayers() {
+	leader.mu.RLock()
+	a := leader.assignment
+	leader.mu.RUnlock()
+
+	for nodeID, layerIDs := range a {
+		for layerID := range layerIDs {
+			layer, ok := leader.layers[layerID]
+			if !ok {
+				log.Warn().Msgf("no layers found for layerID:%v", layerID)
+			}
+			err := leader.sendLayer(nodeID, layerID, layer)
+			if err != nil {
+				log.Error().Err(err).Msgf("couldn't send a layer %v", layerID)
+			}
 		}
 	}
 }
@@ -260,6 +288,10 @@ func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	}
 
 	leader.mu.Unlock()
+}
+
+func (leader *LeaderNode) StartDistribution() <-chan Assignment {
+	return leader.startDistributionChan
 }
 
 func (leader *LeaderNode) Ready() <-chan Assignment {

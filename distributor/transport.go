@@ -94,11 +94,18 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 
 // Connect tries to connect to the node which has the address using Dial.
 func (t *TcpTransport) Connect(addrID NodeID) error {
+
 	t.mu.RLock()
 	addr, ok := t.addrRegistory[addrID]
+	myAddr := t.addr
 	t.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("addr of %d does not exist", addrID)
+	}
+
+	if addr == myAddr {
+		log.Debug().Msg("skip dialing to myself")
+		return nil
 	}
 
 	conn, err := net.Dial("tcp", addr)

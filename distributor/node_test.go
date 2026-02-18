@@ -16,6 +16,7 @@ func TestSimpleDistribution(t *testing.T) {
 	const NumReceivers = 3
 	const NumPeers = NumReceivers + 1
 	const LeaderNodeID = 0
+	// layers the leader should distribute to receivers
 	layers := make(distributor.Layers)
 	for i := range NumReceivers {
 		// add dummy data as small random Bytes
@@ -48,12 +49,20 @@ func TestSimpleDistribution(t *testing.T) {
 		for i := range NumReceivers {
 			receiverTransport := transports[transCounter]
 			transCounter++
-			receiver := distributor.NewReceiverNode(distributor.NewNode(distributor.NodeID(LeaderNodeID+i+1), LeaderNodeID, receiverTransport), layers)
+			receiver := distributor.NewReceiverNode(distributor.NewNode(distributor.NodeID(LeaderNodeID+i+1), LeaderNodeID, receiverTransport), make(distributor.Layers))
 			receivers[i] = receiver
 
 			// receivers announce its existence to the leader
 			err := receiver.Announce()
 			require.NoError(t, err)
+		}
+
+		// leader should start sending layers after collecting annoucements from receivers
+		select {
+		case msg := <-leader.StartDistribution():
+			fmt.Print(msg)
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for announcements from receivers")
 		}
 
 		// leader should send layers; wait for the leader to collect acks from receivers
