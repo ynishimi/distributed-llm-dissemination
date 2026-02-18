@@ -30,7 +30,7 @@ func TestTransportSendSingle(t *testing.T) {
 
 		select {
 		case msg := <-p2.Deliver():
-			fmt.Print(msg)
+			t.Log(msg)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for message delivery")
 		}
@@ -75,7 +75,7 @@ func TestInmemoryTransportSendThree(t *testing.T) {
 
 		go func() {
 			for msg := range p2.Deliver() {
-				fmt.Println(msg)
+				t.Log(msg)
 				msgs = append(msgs, msg)
 			}
 		}()
@@ -137,7 +137,7 @@ func TestInmemoryTransportBroadcastSingle(t *testing.T) {
 
 		select {
 		case msg := <-p2.Deliver():
-			fmt.Print(msg)
+			t.Log(msg)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for message delivery")
 		}

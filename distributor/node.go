@@ -76,7 +76,6 @@ func (n *n) getNextHop(goalID NodeID) (NodeID, error) {
 
 	info, ok := n.routingTable[goalID]
 	if !ok {
-		// todo: return a non-zero value?
 		return 0, fmt.Errorf("routing entry for the specified the goal does not exist")
 	}
 

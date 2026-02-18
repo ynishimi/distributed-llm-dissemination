@@ -81,6 +81,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 		var m TransportMsg
 		err := d.Decode(&m)
 		if err != nil {
+			// when the connection is closed by its counterpart, or the connection is already closed
 			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
 				log.Debug().Msg("connection closed")
 			} else {
