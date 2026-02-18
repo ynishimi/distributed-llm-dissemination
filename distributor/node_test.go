@@ -181,21 +181,21 @@ func BenchmarkSimpleDistributionTcp(b *testing.B) {
 	layers := createMockLayers(NumLayers, NumReceivers, LeaderNodeID)
 	assignment := createSimpleAssignment(NumReceivers, LeaderNodeID)
 
-	for b.Loop() {
-		// TCP transport
-		transports := createTcpTransports(NumPeers, LeaderNodeID)
+	// for b.Loop() {
+	// TCP transport
+	transports := createTcpTransports(NumPeers, LeaderNodeID)
 
-		leader, receivers := createLeaderAndEmptyReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers)
-		start, ready := execDistribution(b, assignment, leader, receivers)
+	leader, receivers := createLeaderAndEmptyReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers)
+	start, ready := execDistribution(b, assignment, leader, receivers)
 
-		// start the timer
-		<-start
-		b.ResetTimer()
+	// start the timer
+	<-start
+	b.ResetTimer()
 
-		<-ready
+	<-ready
 
-		for _, tr := range transports {
-			tr.Close()
-		}
+	for _, tr := range transports {
+		tr.Close()
 	}
+	// }
 }
