@@ -11,7 +11,7 @@ import (
 // node interface has its ID.
 type node interface {
 	// Shows its ID
-	getMyID() NodeID
+	GetMyID() NodeID
 	// returns leader's nodeID
 	getLeader() NodeID
 	// returns next hop according to the routing table
@@ -55,7 +55,7 @@ func NewNode(myID NodeID, leaderID NodeID, t Transport) *n {
 	return newNode
 }
 
-func (n *n) getMyID() NodeID {
+func (n *n) GetMyID() NodeID {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
@@ -156,13 +156,16 @@ func (l LayerIDs) String() string {
 	return fmt.Sprint(layerIds)
 }
 
-// leader
-type leader interface {
+// Leader
+type Leader interface {
 	// todo: Receives a new assignment and remember it. Return nil if the assignment is successfully registered.
 	// update(a assignment) error
 
 	// todo
 	// crash(n node)
+
+	// Notifies that the leader started distribution
+	StartDistribution() <-chan Assignment
 
 	// Notifies that the assignment is Ready
 	Ready() <-chan Assignment // todo: maybe error should be sent when assignment was interrupted?
@@ -273,7 +276,7 @@ func (leader *LeaderNode) sendLayers() {
 
 func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layer *Layer) error {
 	log.Debug().Msgf("sending layer %v", layerID)
-	layerMsg := NewLayerMsg(leader.node.getMyID(), layerID, *layer)
+	layerMsg := NewLayerMsg(leader.node.GetMyID(), layerID, *layer)
 	err := leader.GetTransport().Send(dest, layerMsg)
 	return err
 }
@@ -433,14 +436,14 @@ func (rLeader *RetransmitLeaderNode) sendLayers() {
 func (rLeader *RetransmitLeaderNode) sendRetransmit(layerID LayerID, owner NodeID, dest NodeID) error {
 	log.Debug().Msgf("sending retransmit %v", layerID)
 	// specifies the layer ID and the new dest.
-	transmitMsg := NewRetransmitMsg(rLeader.node.getMyID(), layerID, dest)
+	transmitMsg := NewRetransmitMsg(rLeader.node.GetMyID(), layerID, dest)
 	// yet the transmitMsg itself is sent to the owner, not the dest of the layer.
 	err := rLeader.GetTransport().Send(owner, transmitMsg)
 	return err
 }
 
-// receiver
-type receiver interface {
+// Receiver
+type Receiver interface {
 	// announces its existence (with the layers it has) to leader
 	Announce() error
 }
@@ -492,7 +495,7 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	receiver.layers[layerMsg.LayerID] = &layerMsg.LayerData
 
 	// send ack
-	ackMsg := NewAckMsg(receiver.node.getMyID(), layerMsg.LayerID)
+	ackMsg := NewAckMsg(receiver.node.GetMyID(), layerMsg.LayerID)
 	err := receiver.GetTransport().Send(layerMsg.SrcID, ackMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to send ackMsg")
@@ -515,7 +518,7 @@ func (receiver *ReceiverNode) Announce() error {
 		return err
 	}
 
-	announceMsg := NewAnnounceMsg(receiver.node.getMyID(), curLayerIDs)
+	announceMsg := NewAnnounceMsg(receiver.node.GetMyID(), curLayerIDs)
 
 	// todo: conversion of a nodeID to addr
 	err = receiver.GetTransport().Send(nextHop, announceMsg)
