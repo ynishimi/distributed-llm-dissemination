@@ -13,7 +13,7 @@ import (
 
 func TestMain(m *testing.M) {
 	// ignores debug logs
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	m.Run()
 }
 

@@ -105,11 +105,11 @@ func (m *retransmitMsg) Src() string {
 }
 
 func (m *retransmitMsg) Type() MsgType {
-	return MsgTypeLayer
+	return MsgTypeRetransmit
 }
 
 func (m *retransmitMsg) String() string {
-	return fmt.Sprintf("%v: %v, %v", m.SrcID, m.LayerID, m.DestID)
+	return fmt.Sprintf("from %v: layer %v, to %v", m.SrcID, m.LayerID, m.DestID)
 }
 
 // layerMsg
@@ -140,7 +140,7 @@ func (m *layerMsg) Payload() []byte {
 }
 
 func (m *layerMsg) String() string {
-	return fmt.Sprintf("%v: %v", m.SrcID, m.LayerID)
+	return fmt.Sprintf("from %v: layer %v", m.SrcID, m.LayerID)
 }
 
 // SimpleMsg for testing.

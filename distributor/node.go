@@ -2,7 +2,6 @@ package distributor
 
 import (
 	"fmt"
-	"reflect"
 	"sync"
 
 	"github.com/rs/zerolog/log"
@@ -295,8 +294,10 @@ func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	// add the layer to current status
 	curStatus[ackMsg.LayerID] = struct{}{}
 
+	log.Debug().Str("status", fmt.Sprint(leader.status)).Msg("status")
+
 	// checks if the assignment is completed
-	if reflect.DeepEqual(leader.status, status(leader.assignment)) {
+	if assignmentSatisfied(leader.assignment, leader.status) {
 		leader.mu.Unlock()
 		// notify the assignment to be ready
 		leader.readyChan <- leader.assignment
@@ -304,6 +305,19 @@ func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	}
 
 	leader.mu.Unlock()
+}
+
+// assignmentSatisfied checks if, for each node, to have all the assignmented layers.
+func assignmentSatisfied(a Assignment, s status) bool {
+	for node, layers := range a {
+		for layer := range layers {
+			// checks if the layer exists in the current status
+			if _, ok := s[node][layer]; !ok {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (leader *LeaderNode) StartDistribution() <-chan Assignment {
@@ -505,9 +519,9 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	// store layer
 	receiver.layers[layerMsg.LayerID] = &layerMsg.LayerData
 
-	// send ack
+	// send ack to leader
 	ackMsg := NewAckMsg(receiver.node.GetMyID(), layerMsg.LayerID)
-	err := receiver.GetTransport().Send(layerMsg.SrcID, ackMsg)
+	err := receiver.GetTransport().Send(receiver.getLeader(), ackMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to send ackMsg")
 	}
@@ -579,8 +593,15 @@ func (rReceiver *RetransmitReceiverNode) handleRetransmitMsg(retransmitMsg *retr
 	layer := rReceiver.layers[retransmitMsg.LayerID]
 	rReceiver.mu.RUnlock()
 
+	// add the destination node to the routing table and connect to it
+	rReceiver.addNode(retransmitMsg.DestID)
+
 	// send layer to dest.
 	// todo: should the receiver set its SrcID?
-	layerMsg := NewLayerMsg(retransmitMsg.SrcID, retransmitMsg.LayerID, *layer)
-	return rReceiver.GetTransport().Send(retransmitMsg.DestID, layerMsg)
+	layerMsg := NewLayerMsg(rReceiver.GetMyID(), retransmitMsg.LayerID, *layer)
+	err := rReceiver.GetTransport().Send(retransmitMsg.DestID, layerMsg)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to send layer to %v", retransmitMsg.DestID)
+	}
+	return err
 }
