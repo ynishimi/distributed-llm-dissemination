@@ -258,10 +258,16 @@ func (leader *LeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
 func (leader *LeaderNode) sendLayers() {
 	leader.mu.RLock()
 	a := leader.assignment
+	s := leader.status
 	leader.mu.RUnlock()
 
 	for nodeID, layerIDs := range a {
 		for layerID := range layerIDs {
+			// skip the layer which is already obtained by the node
+			if _, ok := s[nodeID][layerID]; ok {
+				continue
+			}
+
 			layer, ok := leader.layers[layerID]
 			if !ok {
 				log.Warn().Msgf("no layers found for layerID:%v", layerID)
@@ -359,7 +365,7 @@ func (rLeader *RetransmitLeaderNode) handleAnnounceMsg(announceMsg *announceMsg)
 
 	if !ok {
 		// initialize the value (map of layers the receiver already has)
-		rLeader.status[announceMsg.SrcID] = make(LayerIDs)
+		rLeader.status[announceMsg.SrcID] = announceMsg.LayerIDs
 		// add the receiver as neighbor
 		rLeader.node.addNode(announceMsg.SrcID)
 	}
@@ -388,8 +394,8 @@ func (rLeader *RetransmitLeaderNode) sendLayers() {
 	rLeader.mu.Lock()
 	a := rLeader.assignment
 
-	// add entries to layerOwners
-	for nodeID, layerIDs := range a {
+	// add entries to layerOwners based on status map
+	for nodeID, layerIDs := range rLeader.status {
 		for layerID := range layerIDs {
 			owners, ok := rLeader.layerOwners[layerID]
 			if !ok {
@@ -406,7 +412,12 @@ func (rLeader *RetransmitLeaderNode) sendLayers() {
 	for nodeID, layerIDs := range a {
 		for layerID := range layerIDs {
 			// if some receivers already has the layer, the leader sends retransmit message instead
-			if owners, ok := lo[layerID]; ok {
+			if owners, ok := lo[layerID]; ok && len(owners) > 0 {
+				// skip the layer which is already obtained by the node
+				if _, ok = owners[nodeID]; ok {
+					continue
+				}
+
 				// this time, the leader simply chooses a random owner of the map
 				var owner NodeID
 				for o := range owners {
