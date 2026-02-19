@@ -18,7 +18,7 @@ var fileName = flag.String("filename", "", "filename of topology JSON file")
 type config struct {
 	Nodes      []nodeConf
 	Assignment distributor.Assignment
-	layerSize  uint
+	LayerSize  uint
 }
 
 type nodeConf struct {
@@ -64,10 +64,15 @@ func main() {
 	parsedID := uint(*myID)
 	n := distributor.NewNode(distributor.NodeID(parsedID), leaderConf.Id, t)
 
-	distributor.NewReceiverNode(n, layers)
+	receiverNode := distributor.NewReceiverNode(n, layers)
+	err = receiverNode.Announce()
 
-	for {
+	if err != nil {
+		log.Error().Err(err).Msg("failed to announce")
+		return
 	}
+
+	select {}
 }
 
 // // createMockLayers creates layers based on the number and the size of layers specified.
