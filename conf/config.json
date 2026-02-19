@@ -1,0 +1,36 @@
+{
+    "Nodes": [
+        {
+            "Id": 0,
+            "Addr": "<leader_IP>:8080",
+            "IsLeader": true
+        },
+        {
+            "Id": 1,
+            "Addr": "<receiver1_IP>:8080",
+            "IsLeader": false
+        },
+        {
+            "Id": 2,
+            "Addr": "<receiver2_IP>:8080",
+            "IsLeader": false
+        },
+        {
+            "Id": 3,
+            "Addr": "<receiver3_IP>:8080",
+            "IsLeader": false
+        }
+    ],
+    "Assignment": {
+        "1": {
+            "1": {}
+        },
+        "2": {
+            "2": {}
+        },
+        "3": {
+            "3": {}
+        }
+    },
+    "LayerSize": 1
+}

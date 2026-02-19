@@ -20,7 +20,7 @@ var fileName = flag.String("filename", "", "filename of topology JSON file")
 type config struct {
 	Nodes      []nodeConf
 	Assignment distributor.Assignment
-	layerSize  uint
+	LayerSize  uint
 }
 
 type nodeConf struct {
@@ -53,7 +53,7 @@ func main() {
 	numPeers := uint(len(conf.Nodes))
 
 	// load (dummy) layers
-	layers := createMockLayers(numPeers-1, conf.layerSize)
+	layers := createMockLayers(numPeers-1, conf.LayerSize)
 
 	// creates registory
 	addrRegistry := make(distributor.AddrRegistory, numPeers)
@@ -91,7 +91,7 @@ func createMockLayers(numLayers uint, layerSize uint) distributor.Layers {
 		rand.Read(randBytes)
 		layer := distributor.Layer(randBytes)
 
-		layers[distributor.LayerID(i)] = &layer
+		layers[distributor.LayerID(i+1)] = &layer
 	}
 	return layers
 }

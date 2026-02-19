@@ -252,7 +252,6 @@ func (leader *LeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
 
 	// start sending layers
 	leader.startDistributionChan <- a
-
 	leader.sendLayers()
 }
 
@@ -401,7 +400,6 @@ func (rLeader *RetransmitLeaderNode) handleAnnounceMsg(announceMsg *announceMsg)
 
 	// start sending layers
 	rLeader.startDistributionChan <- a
-
 	rLeader.sendLayers()
 }
 
