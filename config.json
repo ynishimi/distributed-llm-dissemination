@@ -1,0 +1,20 @@
+{
+    "Nodes": [
+        {
+            "Id": 0,
+            "Addr": ":8080",
+            "IsLeader": true
+        },
+        {
+            "Id": 1,
+            "Addr": ":8081",
+            "IsLeader": false
+        }
+    ],
+    "Assignment": {
+        "1": {
+            "0": {}
+        }
+    },
+    "layerSize": 1
+}

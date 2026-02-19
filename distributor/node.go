@@ -47,9 +47,11 @@ func NewNode(myID NodeID, leaderID NodeID, t Transport) *n {
 	}
 
 	// add myself
-	newNode.addNode(myID)
+	// newNode.addNode(myID)
 	// add leader
-	newNode.addNode(leaderID)
+	if myID != leaderID {
+		newNode.addNode(leaderID)
+	}
 
 	return newNode
 }
