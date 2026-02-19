@@ -65,6 +65,9 @@ func main() {
 	n := distributor.NewNode(distributor.NodeID(parsedID), leaderConf.Id, t)
 
 	distributor.NewReceiverNode(n, layers)
+
+	for {
+	}
 }
 
 // // createMockLayers creates layers based on the number and the size of layers specified.
