@@ -16,6 +16,7 @@ import (
 var myAddr = flag.String("addr", "", "my address")
 var myID = flag.Int("id", -1, "my ID")
 var fileName = flag.String("filename", "", "filename of topology JSON file")
+var mode = flag.Int("mode", -1, "0: naive, 1: layer retransmit")
 
 type config struct {
 	Nodes      []nodeConf
@@ -66,7 +67,18 @@ func main() {
 	parsedID := uint(*myID)
 	n := distributor.NewNode(distributor.NodeID(parsedID), leaderConf.Id, t)
 
-	leaderNode := distributor.NewLeaderNode(n, layers, conf.Assignment)
+	mode := uint(*mode)
+
+	var leaderNode distributor.Leader
+	switch mode {
+	case 0:
+		leaderNode = distributor.NewLeaderNode(n, layers, conf.Assignment)
+	case 1:
+		leaderNode = distributor.NewRetransmitLeaderNode(n, layers, conf.Assignment)
+	default:
+		log.Error().Msg("unknown mode")
+		return
+	}
 
 	ttd := run(leaderNode)
 	fmt.Printf("Time to deliver: %v\n", ttd)

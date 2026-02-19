@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 var myAddr = flag.String("addr", "", "my address")
 var myID = flag.Int("id", -1, "my ID")
 var fileName = flag.String("filename", "", "filename of topology JSON file")
+var mode = flag.Int("mode", -1, "0: naive, 1: layer retransmit")
 
 type config struct {
 	Nodes      []nodeConf
@@ -30,7 +32,7 @@ type nodeConf struct {
 func main() {
 	// get input
 	flag.Parse()
-	if *myAddr == "" || *myID < 0 || *fileName == "" {
+	if *myAddr == "" || *myID < 0 || *fileName == "" || *mode < 0 {
 		fmt.Println("usage: -addr :8080 -id  0 -filename config.json")
 		return
 	}
@@ -49,9 +51,10 @@ func main() {
 		return
 	}
 	numPeers := uint(len(conf.Nodes))
+	parsedID := uint(*myID)
 
 	// load (dummy) layers
-	layers := make(distributor.Layers)
+	layers := createMockReceiverLayers(parsedID, numPeers-1, conf.LayerSize)
 
 	// creates registory
 	addrRegistry := make(distributor.AddrRegistory, numPeers)
@@ -61,10 +64,21 @@ func main() {
 
 	// create transport
 	t := distributor.NewTcpTransport(*myAddr, numPeers, addrRegistry)
-	parsedID := uint(*myID)
 	n := distributor.NewNode(distributor.NodeID(parsedID), leaderConf.Id, t)
 
-	receiverNode := distributor.NewReceiverNode(n, layers)
+	mode := uint(*mode)
+
+	var receiverNode distributor.Receiver
+	switch mode {
+	case 0:
+		receiverNode = distributor.NewReceiverNode(n, layers)
+	case 1:
+		receiverNode = distributor.NewRetransmitReceiverNode(n, layers)
+	default:
+		log.Error().Msg("unknown mode")
+		return
+	}
+
 	err = receiverNode.Announce()
 
 	if err != nil {
@@ -73,6 +87,19 @@ func main() {
 	}
 
 	select {}
+}
+
+// createMockReceiverLayers creates layers based on the number and the size of layers specified.
+func createMockReceiverLayers(parsedID, numLayers, layerSize uint) distributor.Layers {
+	layers := make(distributor.Layers, 2)
+
+	// add dummy data as random Bytes
+	randBytes := make([]byte, layerSize)
+	rand.Read(randBytes)
+	layer := distributor.Layer(randBytes)
+	layers[distributor.LayerID(parsedID%numLayers+1)] = &layer
+	layers[distributor.LayerID((parsedID+1)%numLayers)+1] = &layer
+	return layers
 }
 
 // // createMockLayers creates layers based on the number and the size of layers specified.
