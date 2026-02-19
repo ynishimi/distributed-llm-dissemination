@@ -260,6 +260,7 @@ func BenchmarkSimpleDistributionTcp(b *testing.B) {
 		b.ResetTimer()
 
 		<-ready
+		b.StopTimer()
 
 		for _, tr := range transports {
 			tr.Close()
