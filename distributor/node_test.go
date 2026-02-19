@@ -13,7 +13,7 @@ import (
 
 func TestMain(m *testing.M) {
 	// ignores debug logs
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	m.Run()
 }
 
@@ -34,6 +34,36 @@ func createLeaderAndEmptyReceivers(transports []distributor.Transport, assignmen
 		// creates a new receiver node with no layers
 		node := distributor.NewNode(distributor.NodeID(int(LeaderNodeID)+i+1), LeaderNodeID, receiverTransport)
 		receiver := distributor.NewReceiverNode(node, make(distributor.Layers))
+		receivers[i] = receiver
+	}
+	return leader, receivers
+}
+
+// creates a ring (each node is assigned a layer stored at the next node)
+func createRetransmitLeaderAndReceivers(transports []distributor.Transport, assignment distributor.Assignment, layers distributor.Layers, LeaderNodeID distributor.NodeID, NumReceivers int) (*distributor.RetransmitLeaderNode, []*distributor.RetransmitReceiverNode) {
+	transCounter := 0
+	// leader
+	n := distributor.NewNode(LeaderNodeID, LeaderNodeID, transports[transCounter])
+	transCounter++
+	leader := distributor.NewRetransmitLeaderNode(n, layers, assignment)
+
+	// receivers
+	receivers := make([]*distributor.RetransmitReceiverNode, NumReceivers)
+	for i := range NumReceivers {
+		// gets transport
+		receiverTransport := transports[transCounter]
+		transCounter++
+
+		// creates a new receiver node. Each node is assigned a layer stored at the next node (e.g., r1 is assinged l1, but l1 is already obtained by r2)
+		node := distributor.NewNode(distributor.NodeID(int(LeaderNodeID)+i+1), LeaderNodeID, receiverTransport)
+		receiverLayers := make(distributor.Layers)
+
+		// creates a ring
+		prevIndex := (int(LeaderNodeID) + i - 1 + NumReceivers) % NumReceivers
+		prevLayerID := distributor.LayerID(int(LeaderNodeID) + prevIndex + 1)
+		receiverLayers[prevLayerID] = layers[prevLayerID]
+
+		receiver := distributor.NewRetransmitReceiverNode(node, receiverLayers)
 		receivers[i] = receiver
 	}
 	return leader, receivers
@@ -66,7 +96,7 @@ func createSimpleAssignment(NumReceivers, LeaderNodeID int) *distributor.Assignm
 }
 
 // execDistribution executes the distribution of the layers, and notifies when it starts distribution.
-func execDistribution(t testing.TB, assignment *distributor.Assignment, leader *distributor.LeaderNode, receivers []*distributor.ReceiverNode) (<-chan distributor.Assignment, <-chan distributor.Assignment) {
+func execDistribution[R distributor.Receiver](t testing.TB, assignment *distributor.Assignment, leader distributor.Leader, receivers []R) (<-chan distributor.Assignment, <-chan distributor.Assignment) {
 	for _, receiver := range receivers {
 		// receivers announce its existence to the leader
 		err := receiver.Announce()
@@ -120,8 +150,8 @@ func createTcpTransports(NumPeers, LeaderNodeID int) []distributor.Transport {
 
 func TestSimpleDistribution(t *testing.T) {
 	// assignment and layers
-	const NumLayers = 3
-	const NumReceivers = 3
+	const NumLayers = 4
+	const NumReceivers = 4
 	const NumPeers = NumReceivers + 1
 	const LeaderNodeID = 0
 
@@ -169,32 +199,70 @@ func TestSimpleDistribution(t *testing.T) {
 			tr.Close()
 		}
 	})
+	t.Run("tcp_retransmission", func(t *testing.T) {
+		transports := createTcpTransports(NumPeers, LeaderNodeID)
+		t.Cleanup(func() {
+			for _, tr := range transports {
+				tr.Close()
+			}
+		})
+
+		leader, receivers := createRetransmitLeaderAndReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers)
+		_, ready := execDistribution(t, assignment, leader, receivers)
+
+		select {
+		case <-ready:
+		case <-time.After(time.Second):
+			t.Error("timeout waiting for message delivery")
+		}
+
+		for _, tr := range transports {
+			tr.Close()
+		}
+	})
 }
 
 func BenchmarkSimpleDistributionTcp(b *testing.B) {
 	// assignment and layers
-	const NumLayers = 3
-	const NumReceivers = 3
+	const NumLayers = 4
+	const NumReceivers = 4
 	const NumPeers = NumReceivers + 1
 	const LeaderNodeID = 0
 
 	layers := createMockLayers(NumLayers, NumReceivers, LeaderNodeID)
 	assignment := createSimpleAssignment(NumReceivers, LeaderNodeID)
 
-	// TCP transport
-	transports := createTcpTransports(NumPeers, LeaderNodeID)
+	b.Run("tcp", func(b *testing.B) {
+		transports := createTcpTransports(NumPeers, LeaderNodeID)
 
-	leader, receivers := createLeaderAndEmptyReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers)
-	start, ready := execDistribution(b, assignment, leader, receivers)
+		leader, receivers := createLeaderAndEmptyReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers)
+		start, ready := execDistribution(b, assignment, leader, receivers)
 
-	// start the timer
-	<-start
-	b.ResetTimer()
+		// start the timer
+		<-start
+		b.ResetTimer()
 
-	<-ready
-	b.StopTimer()
+		<-ready
+		b.StopTimer()
 
-	for _, tr := range transports {
-		tr.Close()
-	}
+		for _, tr := range transports {
+			tr.Close()
+		}
+	})
+
+	b.Run("tcp_retransmission", func(b *testing.B) {
+		transports := createTcpTransports(NumPeers, LeaderNodeID)
+
+		leader, receivers := createRetransmitLeaderAndReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers)
+		start, ready := execDistribution(b, assignment, leader, receivers)
+
+		<-start
+		b.ResetTimer()
+
+		<-ready
+
+		for _, tr := range transports {
+			tr.Close()
+		}
+	})
 }

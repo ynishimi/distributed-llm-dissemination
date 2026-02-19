@@ -8,7 +8,7 @@ import (
 type Message interface {
 	Src() string
 	Type() MsgType
-	Payload() []byte
+	// Payload() []byte
 	String() string
 }
 
@@ -19,6 +19,7 @@ const (
 	MsgTypeAnnounce MsgType = iota
 	MsgTypeAck
 	MsgTypeLayer
+	MsgTypeRetransmit
 	MsgTypeSimple
 	MsgTypeTransport
 )
@@ -84,19 +85,45 @@ func (m *ackMsg) String() string {
 	return fmt.Sprintf("%v: %v", m.SrcID, m.LayerID)
 }
 
-// layerMsg
+// retransmitMsg
+type retransmitMsg struct {
+	SrcID   NodeID
+	LayerID LayerID
+	DestID  NodeID
+}
 
+func NewRetransmitMsg(src NodeID, layerID LayerID, destID NodeID) *retransmitMsg {
+	return &retransmitMsg{
+		SrcID:   src,
+		LayerID: layerID,
+		DestID:  destID,
+	}
+}
+
+func (m *retransmitMsg) Src() string {
+	return fmt.Sprint(m.SrcID)
+}
+
+func (m *retransmitMsg) Type() MsgType {
+	return MsgTypeRetransmit
+}
+
+func (m *retransmitMsg) String() string {
+	return fmt.Sprintf("from %v: layer %v, to %v", m.SrcID, m.LayerID, m.DestID)
+}
+
+// layerMsg
 type layerMsg struct {
-	SrcID      NodeID
-	MsgLayerID LayerID
-	LayerData  Layer
+	SrcID     NodeID
+	LayerID   LayerID
+	LayerData Layer
 }
 
 func NewLayerMsg(src NodeID, layerID LayerID, layer Layer) *layerMsg {
 	return &layerMsg{
-		SrcID:      src,
-		MsgLayerID: layerID,
-		LayerData:  layer,
+		SrcID:     src,
+		LayerID:   layerID,
+		LayerData: layer,
 	}
 }
 
@@ -113,7 +140,7 @@ func (m *layerMsg) Payload() []byte {
 }
 
 func (m *layerMsg) String() string {
-	return fmt.Sprintf("%v: %v", m.SrcID, m.MsgLayerID)
+	return fmt.Sprintf("from %v: layer %v", m.SrcID, m.LayerID)
 }
 
 // SimpleMsg for testing.
@@ -161,6 +188,8 @@ func decodeMsg(m TransportMsg) (Message, error) {
 		return unmarshalRawMsg[*ackMsg](m.Payload)
 	case MsgTypeLayer:
 		return unmarshalRawMsg[*layerMsg](m.Payload)
+	case MsgTypeRetransmit:
+		return unmarshalRawMsg[*retransmitMsg](m.Payload)
 	case MsgTypeSimple:
 		return unmarshalRawMsg[*SimepleMsg](m.Payload)
 	default:
