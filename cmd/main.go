@@ -11,9 +11,9 @@ import (
 )
 
 var myID = flag.Int("id", -1, "my ID")
-var fileName = flag.String("filename", "", "filename of topology JSON file")
-var storagePath = flag.String("storage", "", "path of storing layers")
-var mode = flag.Int("mode", -1, "0: naive, 1: layer retransmit")
+var fileName = flag.String("f", "", "filename of topology JSON file")
+var storagePath = flag.String("s", "", "path of storing layers")
+var mode = flag.Int("m", -1, "0: naive, 1: layer retransmit")
 
 const SaveDisk = true
 
@@ -21,7 +21,7 @@ func main() {
 	// get input
 	flag.Parse()
 	if *myID < 0 || *fileName == "" {
-		fmt.Println("usage: -id  0 -filename config.json -storagePath /mnt -mode 0")
+		fmt.Println("usage: -id  0 -f config.json -s /mnt -m 0")
 		fmt.Println()
 		PrintJsonExample()
 		return
@@ -61,12 +61,12 @@ func main() {
 	n := distributor.NewNode(myID, leaderConf.ID, t)
 
 	if myConf.IsLeader {
-		err = RunLeader(myID, myConf.Addr, n, t, layers, conf.Assignment, mode)
+		err = RunLeader(myID, n, t, layers, conf.Assignment, mode)
 		if err != nil {
 			log.Error().Err(err).Msg("leader failed")
 		}
 	} else {
-		err = RunReceiver(myID, myConf.Addr, n, leaderConf.ID, t, layers, mode)
+		err = RunReceiver(myID, n, leaderConf.ID, t, layers, mode)
 		if err != nil {
 			log.Error().Err(err).Msg("receiver failed")
 		}
@@ -74,8 +74,8 @@ func main() {
 
 }
 
-func RunLeader(myID distributor.NodeID, myaddr string, n *distributor.N, t distributor.Transport, layers distributor.Layers, assignment distributor.Assignment, mode uint) error {
-	fmt.Printf("launching leader...\n[addr: %s, id: %v, filename: %s, storagePath: %v, mode: %v]\n", myaddr, myID, *fileName, *storagePath, mode)
+func RunLeader(myID distributor.NodeID, n *distributor.N, t distributor.Transport, layers distributor.Layers, assignment distributor.Assignment, mode uint) error {
+	fmt.Printf("launching leader...\n[addr: %s, id: %v, filename: %s, storagePath: %v, mode: %v]\n", n.GetTransport().GetAddress(), myID, *fileName, *storagePath, mode)
 
 	var leaderNode distributor.Leader
 	switch mode {
@@ -103,7 +103,9 @@ func executeLeader(leader distributor.Leader) time.Duration {
 	return t1
 }
 
-func RunReceiver(myID distributor.NodeID, myaddr string, n *distributor.N, leaderID distributor.NodeID, t distributor.Transport, layers distributor.Layers, mode uint) error {
+func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor.NodeID, t distributor.Transport, layers distributor.Layers, mode uint) error {
+	fmt.Printf("launching receiver...\n[addr: %s, id: %v, filename: %s]\n", n.GetTransport().GetAddress(), myID, *fileName)
+
 	var receiverNode distributor.Receiver
 	switch mode {
 	case 0:
