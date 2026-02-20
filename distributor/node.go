@@ -2,6 +2,7 @@ package distributor
 
 import (
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/rs/zerolog/log"
@@ -161,6 +162,30 @@ type LayerSrc struct {
 	Offset int64
 }
 
+func (ls *LayerSrc) Read() (*LayerData, error) {
+	if ls.InmemData != nil {
+		// the layer is in memory
+		return ls.InmemData, nil
+	}
+
+	// the layer is in disk
+	f, err := os.Open(ls.Fp)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	buf := make([]byte, ls.Size)
+	_, err = f.ReadAt(buf, ls.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	layerData := LayerData(buf)
+	return &layerData, nil
+
+}
+
 func (l LayerIDs) String() string {
 	layerIds := make([]LayerID, 0, len(l))
 	for id := range l {
@@ -314,6 +339,7 @@ func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 		leader.mu.Unlock()
 		// notify the assignment to be ready
 		leader.readyChan <- leader.assignment
+		leader.sendStartup()
 		return
 	}
 
@@ -339,6 +365,21 @@ func (leader *LeaderNode) StartDistribution() <-chan Assignment {
 
 func (leader *LeaderNode) Ready() <-chan Assignment {
 	return leader.readyChan
+}
+
+func (leader *LeaderNode) sendStartup() error {
+	leader.mu.RLock()
+	s := leader.status
+	leader.mu.RUnlock()
+
+	for receiver := range s {
+		startupMsg := NewStartupMsg(leader.node.GetMyID())
+		err := leader.GetTransport().Send(receiver, startupMsg)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RetransmitLeaderNode has layer retransmission function.
@@ -483,18 +524,23 @@ func (rLeader *RetransmitLeaderNode) sendRetransmit(layerID LayerID, owner NodeI
 type Receiver interface {
 	// announces its existence (with the layers it has) to leader
 	Announce() error
+
+	// Startup tells application layer that the layers are ready.
+	Ready() <-chan struct{}
 }
 
 type ReceiverNode struct {
 	node
-	layers Layers
-	mu     sync.RWMutex
+	layers    Layers
+	readyChan chan struct{}
+	mu        sync.RWMutex
 }
 
 func newReceiverNodeBase(node node, layers Layers) *ReceiverNode {
 	return &ReceiverNode{
-		node:   node,
-		layers: layers,
+		node:      node,
+		readyChan: make(chan struct{}),
+		layers:    layers,
 	}
 }
 
@@ -515,9 +561,9 @@ func (receiver *ReceiverNode) handleIncomingMsg() {
 			// receive layer
 			case *layerMsg:
 				go receiver.handleLayerMsg(v)
-				// todo: start the inference engine
-				// case *startupMsg:
-				// 	go receiver.handleStartupMsg(v)
+			// todo: start the inference engine
+			case *startupMsg:
+				go receiver.handleStartupMsg(v)
 			}
 		}
 	}()
@@ -547,6 +593,11 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	}
 }
 
+// handleStartupMsg tells that the layers are ready to application layer.
+func (receiver *ReceiverNode) handleStartupMsg(*startupMsg) {
+	receiver.readyChan <- struct{}{}
+}
+
 // Announce() announces its existence (with the layers it has) to leader.
 func (receiver *ReceiverNode) Announce() error {
 	receiver.mu.RLock()
@@ -568,6 +619,9 @@ func (receiver *ReceiverNode) Announce() error {
 	// todo: conversion of a nodeID to addr
 	err = receiver.GetTransport().Send(nextHop, announceMsg)
 	return err
+}
+func (receiver *ReceiverNode) Ready() <-chan struct{} {
+	return receiver.readyChan
 }
 
 // RetransmitReceiverNode has layer retransmission function.
@@ -599,9 +653,9 @@ func (rReceiver *RetransmitReceiverNode) handleIncomingMsg() {
 
 			case *retransmitMsg:
 				go rReceiver.handleRetransmitMsg(v)
-				// todo: start the inference engine
-				// case *startupMsg:
-				// 	go receiver.handleStartupMsg(v)
+			// todo: start the inference engine
+			case *startupMsg:
+				go rReceiver.handleStartupMsg(v)
 			}
 		}
 	}()

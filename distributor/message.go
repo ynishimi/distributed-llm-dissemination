@@ -3,7 +3,6 @@ package distributor
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/rs/zerolog/log"
 )
@@ -23,6 +22,7 @@ const (
 	MsgTypeAck
 	MsgTypeLayer
 	MsgTypeRetransmit
+	MsgTypeStartup
 	MsgTypeSimple
 	MsgTypeTransport
 )
@@ -136,30 +136,6 @@ func NewLayerMsg(src NodeID, layerID LayerID, layerSrc *LayerSrc) *layerMsg {
 	}
 }
 
-func (ls *LayerSrc) Read() (*LayerData, error) {
-	if ls.InmemData != nil {
-		// the layer is in memory
-		return ls.InmemData, nil
-	}
-
-	// the layer is in disk
-	f, err := os.Open(ls.Fp)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	buf := make([]byte, ls.Size)
-	_, err = f.ReadAt(buf, ls.Offset)
-	if err != nil {
-		return nil, err
-	}
-
-	layerData := LayerData(buf)
-	return &layerData, nil
-
-}
-
 func (m *layerMsg) Src() string {
 	return fmt.Sprint(m.SrcID)
 }
@@ -174,6 +150,33 @@ func (m *layerMsg) Payload() []byte {
 
 func (m *layerMsg) String() string {
 	return fmt.Sprintf("from %v: layer %v", m.SrcID, m.LayerID)
+}
+
+// startupMsg for start the inference engine on the receiver.
+type startupMsg struct {
+	SrcID NodeID
+}
+
+func NewStartupMsg(src NodeID) *startupMsg {
+	return &startupMsg{
+		SrcID: src,
+	}
+}
+
+func (m *startupMsg) Src() string {
+	return fmt.Sprint(m.SrcID)
+}
+
+func (m *startupMsg) Type() MsgType {
+	return MsgTypeStartup
+}
+
+func (m *startupMsg) Payload() []byte {
+	return nil
+}
+
+func (m *startupMsg) String() string {
+	return fmt.Sprintf("from %v: startup", m.SrcID)
 }
 
 // SimpleMsg for testing.
@@ -223,6 +226,8 @@ func decodeMsg(m TransportMsg) (Message, error) {
 		return unmarshalRawMsg[*layerMsg](m.Payload)
 	case MsgTypeRetransmit:
 		return unmarshalRawMsg[*retransmitMsg](m.Payload)
+	case MsgTypeStartup:
+		return unmarshalRawMsg[*startupMsg](m.Payload)
 	case MsgTypeSimple:
 		return unmarshalRawMsg[*SimepleMsg](m.Payload)
 	default:

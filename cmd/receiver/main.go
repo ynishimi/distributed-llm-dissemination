@@ -14,18 +14,6 @@ var myID = flag.Int("id", -1, "my ID")
 var fileName = flag.String("filename", "", "filename of topology JSON file")
 var mode = flag.Int("mode", -1, "0: naive, 1: layer retransmit")
 
-type config struct {
-	Nodes      []nodeConf
-	Assignment distributor.Assignment
-	LayerSize  uint
-}
-
-type nodeConf struct {
-	Id       distributor.NodeID
-	Addr     string
-	IsLeader bool
-}
-
 func main() {
 	// get input
 	flag.Parse()
@@ -76,12 +64,20 @@ func main() {
 		return
 	}
 
-	err = receiverNode.Announce()
-
+	err = run(receiverNode)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to announce")
 		return
 	}
+}
 
-	select {}
+func run(receiver distributor.Receiver) error {
+	err := receiver.Announce()
+
+	if err != nil {
+		return err
+	}
+
+	<-receiver.Ready()
+	return nil
 }
