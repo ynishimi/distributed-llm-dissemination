@@ -1,13 +1,11 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
-	"os"
 
 	"github.com/rs/zerolog/log"
+	"github.com/ynishimi/distributed-llm-dissemination/cmd/common"
 	"github.com/ynishimi/distributed-llm-dissemination/distributor"
 )
 
@@ -39,12 +37,12 @@ func main() {
 	fmt.Printf("launching receiver...\n[addr: %s, id: %v, filename: %s]\n", *myAddr, *myID, *fileName)
 
 	// read JSON files
-	conf, err := readJson(*fileName)
+	conf, err := common.ReadJson(*fileName)
 	if err != nil {
 		return
 	}
 
-	leaderConf, err := getsLeaderConf(conf)
+	leaderConf, err := common.GetsLeaderConf(conf)
 	if err != nil {
 		log.Error().Err(err).Msg("leader not found in config")
 		return
@@ -53,7 +51,7 @@ func main() {
 	parsedID := uint(*myID)
 
 	// load (dummy) layers
-	layers := createInmemReceiverLayers(parsedID, numPeers-1, conf.LayerSize)
+	layers := common.CreateInmemReceiverLayers(parsedID, numPeers-1, conf.LayerSize)
 
 	// creates registory
 	addrRegistry := make(distributor.AddrRegistory, numPeers)
@@ -86,62 +84,4 @@ func main() {
 	}
 
 	select {}
-}
-
-// createInmemReceiverLayers creates layers based on the number and the size of layers specified.
-func createInmemReceiverLayers(parsedID, numLayers, layerSize uint) distributor.Layers {
-	layerNum := 2
-
-	dummyLayerData := distributor.LayerData(make([]byte, layerNum))
-	DummyLayerSrc := distributor.LayerSrc{
-		InmemData: &dummyLayerData,
-		Fp:        "",
-		Size:      layerSize,
-		Offset:    0,
-	}
-
-	layers := make(distributor.Layers, layerNum)
-	layers[distributor.LayerID(parsedID%numLayers+1)] = &DummyLayerSrc
-	layers[distributor.LayerID((parsedID+1)%numLayers)+1] = &DummyLayerSrc
-	return layers
-}
-
-// // createMockLayers creates layers based on the number and the size of layers specified.
-// func createMockLayers(numLayers uint, layerSize uint) distributor.Layers {
-// 	layers := make(distributor.Layers, numLayers)
-// 	for i := range numLayers {
-// 		// add dummy data as random Bytes
-// 		randBytes := make([]byte, layerSize)
-// 		rand.Read(randBytes)
-// 		layer := distributor.Layer(randBytes)
-
-// 		layers[distributor.LayerID(i)] = &layer
-// 	}
-// 	return layers
-// }
-
-func getsLeaderConf(conf *config) (nodeConf, error) {
-	// gets leader ID
-	for _, nodeconf := range conf.Nodes {
-		if nodeconf.IsLeader {
-			return nodeconf, nil
-		}
-	}
-	return nodeConf{}, fmt.Errorf("no leader found ")
-}
-
-func readJson(fileName string) (*config, error) {
-	jsonFile, err := os.Open(fileName)
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to load json file: %s", fileName)
-		return nil, err
-	}
-	defer jsonFile.Close()
-
-	var conf config
-
-	byteValue, _ := io.ReadAll(jsonFile)
-	json.Unmarshal(byteValue, &conf)
-
-	return &conf, nil
 }
