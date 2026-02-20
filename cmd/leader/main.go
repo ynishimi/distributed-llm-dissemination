@@ -19,7 +19,7 @@ func main() {
 	// get input
 	flag.Parse()
 	if *myAddr == "" || *myID < 0 || *fileName == "" {
-		fmt.Println("usage: -addr :8080 -id  0 -filename config.json")
+		fmt.Println("usage: -addr :8080 -id  0 -filename config.json -mode 0")
 		return
 	}
 
