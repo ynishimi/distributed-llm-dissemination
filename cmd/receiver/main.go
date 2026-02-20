@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -54,7 +53,7 @@ func main() {
 	parsedID := uint(*myID)
 
 	// load (dummy) layers
-	layers := createMockReceiverLayers(parsedID, numPeers-1, conf.LayerSize)
+	layers := createInmemReceiverLayers(parsedID, numPeers-1, conf.LayerSize)
 
 	// creates registory
 	addrRegistry := make(distributor.AddrRegistory, numPeers)
@@ -89,16 +88,21 @@ func main() {
 	select {}
 }
 
-// createMockReceiverLayers creates layers based on the number and the size of layers specified.
-func createMockReceiverLayers(parsedID, numLayers, layerSize uint) distributor.Layers {
-	layers := make(distributor.Layers, 2)
+// createInmemReceiverLayers creates layers based on the number and the size of layers specified.
+func createInmemReceiverLayers(parsedID, numLayers, layerSize uint) distributor.Layers {
+	layerNum := 2
 
-	// add dummy data as random Bytes
-	randBytes := make([]byte, layerSize)
-	rand.Read(randBytes)
-	layer := distributor.Layer(randBytes)
-	layers[distributor.LayerID(parsedID%numLayers+1)] = &layer
-	layers[distributor.LayerID((parsedID+1)%numLayers)+1] = &layer
+	dummyLayerData := distributor.LayerData(make([]byte, layerNum))
+	DummyLayerSrc := distributor.LayerSrc{
+		InmemData: &dummyLayerData,
+		Fp:        "",
+		Size:      layerSize,
+		Offset:    0,
+	}
+
+	layers := make(distributor.Layers, layerNum)
+	layers[distributor.LayerID(parsedID%numLayers+1)] = &DummyLayerSrc
+	layers[distributor.LayerID((parsedID+1)%numLayers)+1] = &DummyLayerSrc
 	return layers
 }
 

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -54,7 +53,7 @@ func main() {
 	numPeers := uint(len(conf.Nodes))
 
 	// load (dummy) layers
-	layers := createMockLayers(numPeers-1, conf.LayerSize)
+	layers := createInmemLeaderLayers(numPeers-1, conf.LayerSize)
 
 	// creates registory
 	addrRegistry := make(distributor.AddrRegistory, numPeers)
@@ -94,16 +93,20 @@ func run(leader distributor.Leader) time.Duration {
 	return t1
 }
 
-// createMockLayers creates layers based on the number and the size of layers specified.
-func createMockLayers(numLayers uint, layerSize uint) distributor.Layers {
+// createInmemLeaderLayers creates layers based on the number and the size of layers specified.
+func createInmemLeaderLayers(numLayers uint, layerSize uint) distributor.Layers {
 	layers := make(distributor.Layers, numLayers)
 	for i := range numLayers {
-		// add dummy data as random Bytes
-		randBytes := make([]byte, layerSize)
-		rand.Read(randBytes)
-		layer := distributor.Layer(randBytes)
+		// add dummy data in memory
+		layerData := distributor.LayerData(make([]byte, layerSize))
+		layerSrc := distributor.LayerSrc{
+			InmemData: &layerData,
+			Fp:        "",
+			Size:      layerSize,
+			Offset:    0,
+		}
 
-		layers[distributor.LayerID(i+1)] = &layer
+		layers[distributor.LayerID(i+1)] = &layerSrc
 	}
 	return layers
 }

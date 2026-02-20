@@ -134,7 +134,8 @@ type NodeIDs map[NodeID]struct{}
 // set of LayerIDs
 type LayerIDs map[LayerID]struct{}
 
-type Layers map[LayerID]*Layer
+// map of layers (has data in memory or has a path to the file)
+type Layers map[LayerID]*LayerSrc
 
 type routingInfo struct {
 	nextHop       NodeID
@@ -146,8 +147,19 @@ type Assignment map[NodeID]LayerIDs
 
 type status map[NodeID]LayerIDs
 
-// content of Layer
-type Layer []byte
+// content of LayerData
+type LayerData []byte
+
+type LayerSrc struct {
+	// InmemData is nil if layer is not in memory
+	InmemData *LayerData
+	// file path of the layer (in disk)
+	Fp string
+	// file Size
+	Size uint
+	// Offset (not used yet)
+	Offset int64
+}
 
 func (l LayerIDs) String() string {
 	layerIds := make([]LayerID, 0, len(l))
@@ -280,9 +292,9 @@ func (leader *LeaderNode) sendLayers() {
 	}
 }
 
-func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layer *Layer) error {
+func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layer *LayerSrc) error {
 	log.Debug().Msgf("sending layer %v", layerID)
-	layerMsg := NewLayerMsg(leader.node.GetMyID(), layerID, *layer)
+	layerMsg := NewLayerMsg(leader.node.GetMyID(), layerID, layer)
 	err := leader.GetTransport().Send(dest, layerMsg)
 	return err
 }
@@ -516,8 +528,16 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	receiver.mu.Lock()
 	defer receiver.mu.Unlock()
 
+	// load the layer to its memory
+	layerSrc := LayerSrc{
+		InmemData: &layerMsg.LayerData,
+		Fp:        "",
+		Size:      uint(len(layerMsg.LayerData)),
+		Offset:    0,
+	}
+
 	// store layer
-	receiver.layers[layerMsg.LayerID] = &layerMsg.LayerData
+	receiver.layers[layerMsg.LayerID] = &layerSrc
 
 	// send ack to leader
 	ackMsg := NewAckMsg(receiver.node.GetMyID(), layerMsg.LayerID)
@@ -596,9 +616,8 @@ func (rReceiver *RetransmitReceiverNode) handleRetransmitMsg(retransmitMsg *retr
 	// add the destination node to the routing table and connect to it
 	rReceiver.addNode(retransmitMsg.DestID)
 
-	// send layer to dest.
-	// todo: should the receiver set its SrcID?
-	layerMsg := NewLayerMsg(rReceiver.GetMyID(), retransmitMsg.LayerID, *layer)
+	// send (retransmit) layer to dest.
+	layerMsg := NewLayerMsg(rReceiver.GetMyID(), retransmitMsg.LayerID, layer)
 	err := rReceiver.GetTransport().Send(retransmitMsg.DestID, layerMsg)
 	if err != nil {
 		log.Error().Err(err).Msgf("failed to send layer to %v", retransmitMsg.DestID)

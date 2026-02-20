@@ -1,7 +1,6 @@
 package distributor_test
 
 import (
-	"crypto/rand"
 	"fmt"
 	"testing"
 	"time"
@@ -69,16 +68,20 @@ func createRetransmitLeaderAndReceivers(transports []distributor.Transport, assi
 	return leader, receivers
 }
 
-func createMockLayers(NumLayers, NumReceivers, LeaderNodeID int) *distributor.Layers {
+func createMockLayers(NumLayers, NumReceivers, LeaderNodeID, layerSize uint) *distributor.Layers {
 	// layers which the leader should distribute to receivers
 	layers := make(distributor.Layers, NumLayers)
 	for i := range NumReceivers {
-		// add dummy data as small random Bytes
-		randBytes := make([]byte, 1)
-		rand.Read(randBytes)
-		layer := distributor.Layer(randBytes)
+		// add dummy data in memory
+		layerData := distributor.LayerData(make([]byte, layerSize))
+		layerSrc := distributor.LayerSrc{
+			InmemData: &layerData,
+			Fp:        "",
+			Size:      layerSize,
+			Offset:    0,
+		}
 
-		layers[distributor.LayerID(i+LeaderNodeID+1)] = &layer
+		layers[distributor.LayerID(i+LeaderNodeID+1)] = &layerSrc
 	}
 	return &layers
 }
@@ -154,8 +157,9 @@ func TestSimpleDistribution(t *testing.T) {
 	const NumReceivers = 4
 	const NumPeers = NumReceivers + 1
 	const LeaderNodeID = 0
+	const LayerSize = 1
 
-	layers := createMockLayers(NumLayers, NumReceivers, LeaderNodeID)
+	layers := createMockLayers(NumLayers, NumReceivers, LeaderNodeID, LayerSize)
 	assignment := createSimpleAssignment(NumReceivers, LeaderNodeID)
 
 	t.Run("inmem", func(t *testing.T) {
@@ -228,8 +232,9 @@ func BenchmarkSimpleDistributionTcp(b *testing.B) {
 	const NumReceivers = 4
 	const NumPeers = NumReceivers + 1
 	const LeaderNodeID = 0
+	const LayerSize = 1
 
-	layers := createMockLayers(NumLayers, NumReceivers, LeaderNodeID)
+	layers := createMockLayers(NumLayers, NumReceivers, LeaderNodeID, LayerSize)
 	assignment := createSimpleAssignment(NumReceivers, LeaderNodeID)
 
 	b.Run("tcp", func(b *testing.B) {

@@ -3,6 +3,9 @@ package distributor
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+
+	"github.com/rs/zerolog/log"
 )
 
 type Message interface {
@@ -116,15 +119,45 @@ func (m *retransmitMsg) String() string {
 type layerMsg struct {
 	SrcID     NodeID
 	LayerID   LayerID
-	LayerData Layer
+	LayerData LayerData
 }
 
-func NewLayerMsg(src NodeID, layerID LayerID, layer Layer) *layerMsg {
+// NewLayerMsg creates a new layerMsg. If the layer is not in memory, it fetches the file from the disk.
+func NewLayerMsg(src NodeID, layerID LayerID, layerSrc *LayerSrc) *layerMsg {
+	layerData, err := layerSrc.Read()
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get layer")
+	}
+
 	return &layerMsg{
 		SrcID:     src,
 		LayerID:   layerID,
-		LayerData: layer,
+		LayerData: *layerData,
 	}
+}
+
+func (ls *LayerSrc) Read() (*LayerData, error) {
+	if ls.InmemData != nil {
+		// the layer is in memory
+		return ls.InmemData, nil
+	}
+
+	// the layer is in disk
+	f, err := os.Open(ls.Fp)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	buf := make([]byte, ls.Size)
+	_, err = f.ReadAt(buf, ls.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	layerData := LayerData(buf)
+	return &layerData, nil
+
 }
 
 func (m *layerMsg) Src() string {
