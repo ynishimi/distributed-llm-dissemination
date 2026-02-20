@@ -27,7 +27,7 @@ type node interface {
 	GetTransport() Transport
 }
 
-type n struct {
+type N struct {
 	myID     NodeID
 	leaderID NodeID
 	t        Transport
@@ -39,8 +39,8 @@ type n struct {
 }
 
 // Creates a new node.
-func NewNode(myID NodeID, leaderID NodeID, t Transport) *n {
-	newNode := &n{
+func NewNode(myID NodeID, leaderID NodeID, t Transport) *N {
+	newNode := &N{
 		myID:         myID,
 		leaderID:     leaderID,
 		t:            t,
@@ -57,7 +57,7 @@ func NewNode(myID NodeID, leaderID NodeID, t Transport) *n {
 	return newNode
 }
 
-func (n *n) GetMyID() NodeID {
+func (n *N) GetMyID() NodeID {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
@@ -65,14 +65,14 @@ func (n *n) GetMyID() NodeID {
 }
 
 // returns leader's nodeID
-func (n *n) getLeader() NodeID {
+func (n *N) getLeader() NodeID {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
 	return n.leaderID
 }
 
-func (n *n) getNextHop(goalID NodeID) (NodeID, error) {
+func (n *N) getNextHop(goalID NodeID) (NodeID, error) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 
@@ -85,7 +85,7 @@ func (n *n) getNextHop(goalID NodeID) (NodeID, error) {
 }
 
 // adds node
-func (n *n) addNode(goal NodeID) {
+func (n *N) addNode(goal NodeID) {
 	// add it to routing table
 	n.addRoutingTable(goal, goal, 1)
 
@@ -97,7 +97,7 @@ func (n *n) addNode(goal NodeID) {
 }
 
 // adds node that is not directly connected to itself
-func (n *n) addRoutingTable(goal NodeID, nextHop NodeID, remainingHops uint) {
+func (n *N) addRoutingTable(goal NodeID, nextHop NodeID, remainingHops uint) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -107,7 +107,7 @@ func (n *n) addRoutingTable(goal NodeID, nextHop NodeID, remainingHops uint) {
 	}
 }
 
-func (n *n) updateLeader(leaderID NodeID) error {
+func (n *N) updateLeader(leaderID NodeID) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -122,7 +122,7 @@ func (n *n) updateLeader(leaderID NodeID) error {
 	return nil
 }
 
-func (n *n) GetTransport() Transport {
+func (n *N) GetTransport() Transport {
 	return n.t
 }
 
@@ -166,6 +166,10 @@ func (ls *LayerSrc) Read() (*LayerData, error) {
 	if ls.InmemData != nil {
 		// the layer is in memory
 		return ls.InmemData, nil
+	}
+
+	if ls.Fp == "" {
+		return nil, fmt.Errorf("no data source specified")
 	}
 
 	// the layer is in disk
