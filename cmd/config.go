@@ -80,7 +80,7 @@ func CreateLayers(myConf NodeConf, layerSize uint, saveDisk bool) distributor.La
 
 func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layerSize uint, storagePath string) *distributor.LayerSrc {
 	// save as myID/layerID.layer
-	dir := filepath.Join(storagePath, fmt.Sprintf("%d", myID))
+	dir := filepath.Join("layers/", storagePath, fmt.Sprintf("%d", myID))
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		log.Error().Err(err).Msg("failed to create directory")
 	}
