@@ -25,11 +25,16 @@ type TcpTransport struct {
 	addr            string
 	ln              net.Listener
 	incomingMsgChan chan Message
-	conns           map[string]net.Conn
+	conns           map[string]*protectedConn
 
 	addrRegistory AddrRegistory
 
 	mu sync.RWMutex
+}
+
+type protectedConn struct {
+	conn net.Conn
+	mu   sync.Mutex
 }
 
 type tempLayerInfo struct {
@@ -45,7 +50,7 @@ func NewTcpTransport(addr string, bufSize uint, addrRegistory map[NodeID]string)
 	t := &TcpTransport{
 		addr:            addr,
 		incomingMsgChan: make(chan Message, bufSize),
-		conns:           make(map[string]net.Conn),
+		conns:           make(map[string]*protectedConn),
 		addrRegistory:   addrRegistory,
 	}
 
@@ -112,9 +117,10 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 				return
 			}
 
-			layerMsg := &layerMsg{temp.SrcID, temp.LayerID, &data}
+			// moves the decoder
+			d = json.NewDecoder(conn)
 
-			t.incomingMsgChan <- layerMsg
+			t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, &data}
 			continue
 		}
 
@@ -154,7 +160,7 @@ func (t *TcpTransport) Connect(addrID NodeID) error {
 
 	//  save conn
 	t.mu.Lock()
-	t.conns[addr] = conn
+	t.conns[addr] = &protectedConn{conn: conn}
 	t.mu.Unlock()
 
 	return nil
@@ -193,7 +199,12 @@ func (t *TcpTransport) Broadcast(message Message) error {
 	return nil
 }
 
-func (t *TcpTransport) sendTransportMsg(conn net.Conn, message Message) error {
+func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) error {
+	pConn.mu.Lock()
+	defer pConn.mu.Unlock()
+
+	conn := pConn.conn
+
 	if layerMsg, ok := message.(*layerMsg); ok {
 		// sends header and layer separately for avoiding unnecesary memory occupation due to decoding
 		header := tempLayerInfo{layerMsg.SrcID, layerMsg.LayerID, len(*layerMsg.LayerData)}
@@ -208,12 +219,23 @@ func (t *TcpTransport) sendTransportMsg(conn net.Conn, message Message) error {
 			Src:     message.Src(),
 			Payload: marshaledHdr,
 		}
-		json.NewEncoder(conn).Encode(transportMsg)
+		marshaledTransportHdr, err := json.Marshal(transportMsg)
+		if err != nil {
+			return err
+		}
+
+		_, err = conn.Write(marshaledTransportHdr)
+		if err != nil {
+			return err
+		}
 
 		// sends layerData directly
 		_, err = conn.Write(*layerMsg.LayerData)
+		if err != nil {
+			return err
+		}
 
-		return err
+		return nil
 	} else {
 		// sends encoded TransportMsg
 		marshaledMsg, err := json.Marshal(message)
@@ -227,7 +249,17 @@ func (t *TcpTransport) sendTransportMsg(conn net.Conn, message Message) error {
 			Payload: marshaledMsg,
 		}
 
-		return json.NewEncoder(conn).Encode(transportMsg)
+		marshaledTransportMsg, err := json.Marshal(transportMsg)
+		if err != nil {
+			return err
+		}
+
+		_, err = conn.Write(marshaledTransportMsg)
+		if err != nil {
+			return err
+		}
+
+		return nil
 	}
 }
 
@@ -248,8 +280,8 @@ func (t *TcpTransport) Close() error {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	for addr, conn := range t.conns {
-		err := conn.Close()
+	for addr, pConn := range t.conns {
+		err := pConn.conn.Close()
 		if err != nil {
 			return fmt.Errorf("failed to close conn for addr %s", addr)
 		}
