@@ -41,7 +41,7 @@ type tempLayerInfo struct {
 // AddrRegistory stores the mapping of NodeID and its addr.
 type AddrRegistory map[NodeID]string
 
-func NewTcpTransport(addr string, bufSize uint, addrRegistory map[NodeID]string) *TcpTransport {
+func NewTcpTransport(addr string, bufSize uint, addrRegistory map[NodeID]string) (*TcpTransport, error) {
 	t := &TcpTransport{
 		addr:            addr,
 		incomingMsgChan: make(chan Message, bufSize),
@@ -52,8 +52,7 @@ func NewTcpTransport(addr string, bufSize uint, addrRegistory map[NodeID]string)
 	// start listening
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to start listening")
-		return t
+		return nil, fmt.Errorf("failed to start listening: %w", err)
 	}
 	t.ln = ln
 	log.Debug().Str("addr", addr).Msg("start listening")
@@ -75,7 +74,7 @@ func NewTcpTransport(addr string, bufSize uint, addrRegistory map[NodeID]string)
 		}
 	}()
 
-	return t
+	return t, nil
 }
 
 func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {

@@ -57,7 +57,11 @@ func main() {
 	}
 
 	// create transport
-	t := distributor.NewTcpTransport(myConf.Addr, numPeers, addrRegistry)
+	t, err := distributor.NewTcpTransport(myConf.Addr, numPeers, addrRegistry)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to create transport")
+		return
+	}
 	n := distributor.NewNode(myID, leaderConf.ID, t)
 
 	if myConf.IsLeader {
