@@ -341,9 +341,9 @@ func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	// checks if the assignment is completed
 	if assignmentSatisfied(leader.assignment, leader.status) {
 		leader.mu.Unlock()
+		leader.sendStartup()
 		// notify the assignment to be ready
 		leader.readyChan <- leader.assignment
-		leader.sendStartup()
 		return
 	}
 
