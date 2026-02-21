@@ -59,7 +59,7 @@ func GetsConf(conf *config, node distributor.NodeID) (NodeConf, error) {
 			return nodeconf, nil
 		}
 	}
-	return NodeConf{}, fmt.Errorf("no leader found ")
+	return NodeConf{}, fmt.Errorf("no leader found")
 }
 
 func CreateLayers(myConf NodeConf, layerSize uint, saveDisk bool) distributor.Layers {
@@ -68,7 +68,7 @@ func CreateLayers(myConf NodeConf, layerSize uint, saveDisk bool) distributor.La
 	for layerID := range myConf.InitialLayers {
 		var layerSrc *distributor.LayerSrc
 		if saveDisk {
-			layerSrc = CreateDiskLayer(layerID, layerSize)
+			layerSrc = CreateDiskLayer(myConf.ID, layerID, layerSize, *storagePath)
 		} else {
 			layerSrc = CreateInmemLayer(layerID, layerSize)
 		}
@@ -78,8 +78,13 @@ func CreateLayers(myConf NodeConf, layerSize uint, saveDisk bool) distributor.La
 	return layers
 }
 
-func CreateDiskLayer(layerID distributor.LayerID, layerSize uint) *distributor.LayerSrc {
-	path := filepath.Join(os.TempDir(), fmt.Sprintf("%d.layer", layerID))
+func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layerSize uint, storagePath string) *distributor.LayerSrc {
+	// save as myID/layerID.layer
+	dir := filepath.Join(storagePath, fmt.Sprintf("%d", myID))
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Error().Err(err).Msg("failed to create directory")
+	}
+	path := filepath.Join(dir, fmt.Sprintf("%d.layer", layerID))
 	dummyLayerData := distributor.LayerData(make([]byte, layerSize))
 	err := os.WriteFile(path, dummyLayerData, 0644)
 	if err != nil {

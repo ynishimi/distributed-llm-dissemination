@@ -21,7 +21,7 @@ func main() {
 	// get input
 	flag.Parse()
 	if *myID < 0 || *fileName == "" {
-		fmt.Println("usage: -id  0 -f config.json -s /mnt -m 0")
+		fmt.Println("usage: -id  0 -f config.json -s . -m 0")
 		fmt.Println()
 		PrintJsonExample()
 		return
