@@ -32,6 +32,12 @@ type TcpTransport struct {
 	mu sync.RWMutex
 }
 
+type tempLayerInfo struct {
+	SrcID     NodeID
+	LayerID   LayerID
+	LayerSize int
+}
+
 // AddrRegistory stores the mapping of NodeID and its addr.
 type AddrRegistory map[NodeID]string
 
@@ -76,7 +82,6 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 	defer conn.Close()
 
 	d := json.NewDecoder(conn)
-
 	for {
 		var m TransportMsg
 		err := d.Decode(&m)
@@ -88,6 +93,30 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 				log.Error().Err(err).Msg("failed to decode envelope")
 			}
 			return
+		}
+
+		if m.Type == MsgTypeLayer {
+			// receive layer in binary
+			// loads header at first
+			var temp tempLayerInfo
+			err := json.Unmarshal(m.Payload, &temp)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to decode TransportMsg(MsgTypeLayer)")
+				return
+			}
+
+			// then loads layer
+			data := make(LayerData, temp.LayerSize)
+			_, err = io.ReadFull(io.MultiReader(d.Buffered(), conn), data)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to read layer")
+				return
+			}
+
+			layerMsg := &layerMsg{temp.SrcID, temp.LayerID, &data}
+
+			t.incomingMsgChan <- layerMsg
+			continue
 		}
 
 		// notifies the message to upper layer, removing transportMsg part
@@ -166,20 +195,41 @@ func (t *TcpTransport) Broadcast(message Message) error {
 }
 
 func (t *TcpTransport) sendTransportMsg(conn net.Conn, message Message) error {
-	// sends encoded TransportMsg
-	marshaledMsg, err := json.Marshal(message)
-	if err != nil {
+	if layerMsg, ok := message.(*layerMsg); ok {
+		// sends header and layer separately for avoiding unnecesary memory occupation due to decoding
+		header := tempLayerInfo{layerMsg.SrcID, layerMsg.LayerID, len(*layerMsg.LayerData)}
+
+		// sends header first
+		marshaledHdr, err := json.Marshal(header)
+		if err != nil {
+			return err
+		}
+		transportMsg := TransportMsg{
+			Type:    message.Type(),
+			Src:     message.Src(),
+			Payload: marshaledHdr,
+		}
+		json.NewEncoder(conn).Encode(transportMsg)
+
+		// sends layerData directly
+		_, err = conn.Write(*layerMsg.LayerData)
+
 		return err
-	}
+	} else {
+		// sends encoded TransportMsg
+		marshaledMsg, err := json.Marshal(message)
+		if err != nil {
+			return err
+		}
 
-	transportMsg := TransportMsg{
-		Type:    message.Type(),
-		Src:     message.Src(),
-		Payload: marshaledMsg,
-	}
+		transportMsg := TransportMsg{
+			Type:    message.Type(),
+			Src:     message.Src(),
+			Payload: marshaledMsg,
+		}
 
-	e := json.NewEncoder(conn)
-	return e.Encode(transportMsg)
+		return json.NewEncoder(conn).Encode(transportMsg)
+	}
 }
 
 func (t *TcpTransport) Deliver() <-chan Message {

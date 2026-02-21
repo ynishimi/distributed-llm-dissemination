@@ -119,7 +119,7 @@ func (m *retransmitMsg) String() string {
 type layerMsg struct {
 	SrcID     NodeID
 	LayerID   LayerID
-	LayerData LayerData
+	LayerData *LayerData
 }
 
 // NewLayerMsg creates a new layerMsg. If the layer is not in memory, it fetches the file from the disk.
@@ -132,7 +132,7 @@ func NewLayerMsg(src NodeID, layerID LayerID, layerSrc *LayerSrc) *layerMsg {
 	return &layerMsg{
 		SrcID:     src,
 		LayerID:   layerID,
-		LayerData: *layerData,
+		LayerData: layerData,
 	}
 }
 
@@ -145,7 +145,7 @@ func (m *layerMsg) Type() MsgType {
 }
 
 func (m *layerMsg) Payload() []byte {
-	return m.LayerData
+	return *m.LayerData
 }
 
 func (m *layerMsg) String() string {
@@ -222,8 +222,8 @@ func decodeMsg(m TransportMsg) (Message, error) {
 		return unmarshalRawMsg[*announceMsg](m.Payload)
 	case MsgTypeAck:
 		return unmarshalRawMsg[*ackMsg](m.Payload)
-	case MsgTypeLayer:
-		return unmarshalRawMsg[*layerMsg](m.Payload)
+	// case MsgTypeLayer:
+	// 	return unmarshalRawMsg[*layerMsg](m.Payload)
 	case MsgTypeRetransmit:
 		return unmarshalRawMsg[*retransmitMsg](m.Payload)
 	case MsgTypeStartup:

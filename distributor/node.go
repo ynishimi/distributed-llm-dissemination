@@ -580,9 +580,9 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 
 	// load the layer to its memory
 	layerSrc := LayerSrc{
-		InmemData: &layerMsg.LayerData,
+		InmemData: layerMsg.LayerData,
 		Fp:        "",
-		Size:      uint(len(layerMsg.LayerData)),
+		Size:      uint(len(*layerMsg.LayerData)),
 		Offset:    0,
 	}
 
