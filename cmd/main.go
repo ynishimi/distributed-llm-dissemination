@@ -14,6 +14,7 @@ var myID = flag.Int("id", -1, "my ID")
 var fileName = flag.String("f", "", "filename of topology JSON file")
 var storagePath = flag.String("s", "", "path of storing layers")
 var mode = flag.Int("m", -1, "0: naive, 1: layer retransmit")
+var layerSetup = flag.Bool("l", false, "create layer files and exit")
 
 const SaveDisk = true
 
@@ -47,8 +48,13 @@ func main() {
 	}
 	numPeers := uint(len(conf.Nodes))
 
-	// load (dummy) layers
+	// // load (dummy) layers
 	layers := CreateLayers(myConf, conf.LayerSize, SaveDisk)
+
+	if *layerSetup {
+		log.Info().Msg("layer set up")
+		return
+	}
 
 	// creates registory
 	addrRegistry := make(distributor.AddrRegistory, numPeers)

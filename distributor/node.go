@@ -273,7 +273,7 @@ func (leader *LeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
 
 	if !ok {
 		// initialize the value (map of layers the receiver already has)
-		leader.status[announceMsg.SrcID] = make(LayerIDs)
+		leader.status[announceMsg.SrcID] = announceMsg.LayerIDs
 		// add the receiver as neighbor
 		leader.node.addNode(announceMsg.SrcID)
 	}

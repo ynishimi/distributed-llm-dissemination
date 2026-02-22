@@ -85,10 +85,12 @@ func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layer
 		log.Error().Err(err).Msg("failed to create directory")
 	}
 	path := filepath.Join(dir, fmt.Sprintf("%d.layer", layerID))
-	dummyLayerData := distributor.LayerData(make([]byte, layerSize))
-	err := os.WriteFile(path, dummyLayerData, 0644)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to write file")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		dummyLayerData := distributor.LayerData(make([]byte, layerSize))
+		err = os.WriteFile(path, dummyLayerData, 0644)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to write file")
+		}
 	}
 
 	return &distributor.LayerSrc{
