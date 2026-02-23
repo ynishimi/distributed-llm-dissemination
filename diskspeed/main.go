@@ -36,11 +36,11 @@ func main() {
 		log.Error().Err(err).Msg("failed to load")
 	}
 
-	t1 := time.Since(t0)
-	throughput := float64(fileInfo.Size()) / t1.Seconds() / math.Pow(2, 20)
+	ttl := time.Since(t0)
+	throughput := float64(fileInfo.Size()) / ttl.Seconds() / math.Pow(2, 20)
 
-	fmt.Printf("File size: %v\n", t1)
-	fmt.Printf("Time to load: %v\n", fileInfo.Size())
+	fmt.Printf("File size: %v\n", fileInfo.Size())
+	fmt.Printf("Time to load: %v\n", ttl)
 	fmt.Printf("Throughput: %.2f MiB/s\n", throughput)
 }
 
