@@ -126,7 +126,13 @@ func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor
 		return fmt.Errorf("unknown mode")
 	}
 
-	return executeReceiver(receiverNode)
+	err := executeReceiver(receiverNode)
+	if err != nil {
+		log.Error().Err(err).Msg("receiver failed to execute")
+	}
+
+	// infinite loop
+	select {}
 }
 
 func executeReceiver(receiver distributor.Receiver) error {

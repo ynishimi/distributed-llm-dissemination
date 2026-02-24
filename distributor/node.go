@@ -321,9 +321,9 @@ func (leader *LeaderNode) sendLayers() {
 	}
 }
 
-func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layer *LayerSrc) error {
+func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layerSrc *LayerSrc) error {
 	log.Debug().Msgf("sending layer %v", layerID)
-	layerMsg := NewLayerMsg(leader.node.GetMyID(), layerID, layer)
+	layerMsg := NewLayerMsg(leader.node.GetMyID(), layerID, layerSrc)
 	err := leader.GetTransport().Send(dest, layerMsg)
 	return err
 }
@@ -524,6 +524,290 @@ func (rLeader *RetransmitLeaderNode) sendRetransmit(layerID LayerID, owner NodeI
 	return err
 }
 
+// jobStatus indicates the status of the job
+type jobStatus int
+
+const (
+	Pending jobStatus = iota
+	SendingDirectly
+	SendingIndirectly
+	SendingRetransmit
+	// Done
+)
+
+type jobInfo struct {
+	// node which sends the layer to the destination
+	sender NodeID
+	status jobStatus
+}
+
+// key: dest of the layer, val: sender and status
+type jobs map[NodeID]jobInfo
+
+// key: layer, val: map of jobs
+type jobsMap map[LayerID]jobs
+
+// senderLoadCounter counts the current load of each sender.
+// key: sender, val: count
+type senderLoadCounter map[NodeID]uint
+
+// PullRetransmitLeaderNode implements pull-based transmit leader node.
+type PullRetransmitLeaderNode struct {
+	*RetransmitLeaderNode
+	jobsMap           jobsMap
+	senderLoadCounter senderLoadCounter
+	// nodeCompletionStatus stores if the node satisfies the assignment
+	nodeCompletionStatus map[NodeID]bool
+}
+
+func NewPullRetransmitLeaderNode(node node, layers Layers, assignment Assignment) *PullRetransmitLeaderNode {
+	rLeader := NewRetransmitLeaderNode(node, layers, assignment)
+
+	prLeader := &PullRetransmitLeaderNode{
+		RetransmitLeaderNode: rLeader,
+		jobsMap:              make(jobsMap),
+		senderLoadCounter:    make(senderLoadCounter),
+		nodeCompletionStatus: make(map[NodeID]bool),
+	}
+
+	prLeader.handleIncomingMsg()
+
+	return prLeader
+}
+
+// handle msg
+func (prLeader *PullRetransmitLeaderNode) handleIncomingMsg() {
+	go func() {
+		for incomingMsg := range prLeader.GetTransport().Deliver() {
+			log.Debug().Msgf("incoming msg[%T]: %s", incomingMsg, incomingMsg)
+			switch v := incomingMsg.(type) {
+			case *announceMsg:
+				go prLeader.handleAnnounceMsg(v)
+			case *ackMsg:
+				go prLeader.handleAckMsg(v)
+			}
+		}
+	}()
+}
+
+func (prLeader *PullRetransmitLeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
+
+	prLeader.mu.Lock()
+	// checks if the announcement is already received
+	_, ok := prLeader.status[announceMsg.SrcID]
+
+	if !ok {
+		// initialize the value (map of layers the receiver already has)
+		prLeader.status[announceMsg.SrcID] = announceMsg.LayerIDs
+		// add the receiver as neighbor
+		prLeader.node.addNode(announceMsg.SrcID)
+	}
+	prLeader.mu.Unlock()
+
+	prLeader.mu.RLock()
+	a := prLeader.assignment
+	s := prLeader.status
+	prLeader.mu.RUnlock()
+	// checks if all nodes in the assignment are connected by comparing the keys of assignment and status
+	for nodeID := range a {
+		_, ok := s[nodeID]
+		if !ok {
+			return
+		}
+	}
+
+	// start sending layers
+	prLeader.startDistributionChan <- a
+	prLeader.sendLayers()
+}
+
+// This time, assigns a new job to the idle node.
+func (prLeader *PullRetransmitLeaderNode) handleAckMsg(ackMsg *ackMsg) {
+	prLeader.mu.Lock()
+
+	curStatus := prLeader.status[ackMsg.SrcID]
+	// add the layer to current status
+	curStatus[ackMsg.LayerID] = struct{}{}
+
+	log.Debug().Str("status", fmt.Sprint(prLeader.status)).Msg("status")
+
+	// checks if the assignment is completed for the first time
+	if !prLeader.nodeCompletionStatus[ackMsg.SrcID] && assignmentSatisfied(prLeader.assignment, prLeader.status) {
+		prLeader.nodeCompletionStatus[ackMsg.SrcID] = true
+		prLeader.mu.Unlock()
+		prLeader.sendStartup()
+		// notify the assignment to be ready
+		prLeader.readyChan <- prLeader.assignment
+	} else {
+		prLeader.mu.Unlock()
+	}
+
+	// delete a job (if applicable)
+	delete(prLeader.jobsMap[ackMsg.LayerID], ackMsg.SrcID)
+
+	// assign a new job
+	err := prLeader.assignNewJob(ackMsg.SrcID)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to assign a new job after its ack %v", ackMsg.SrcID)
+	}
+}
+
+// This time, the leader sends only the layers no other node has. Otherwise, it asks for retransmission.
+func (prLeader *PullRetransmitLeaderNode) sendLayers() {
+
+	prLeader.mu.Lock()
+	a := prLeader.assignment
+
+	// add entries to layerOwners based on status map
+	for nodeID, layerIDs := range prLeader.status {
+		for layerID := range layerIDs {
+			owners, ok := prLeader.layerOwners[layerID]
+			if !ok {
+				log.Error().Msgf("layerOwners is not initialized for the key %v", layerID)
+			}
+			owners[nodeID] = struct{}{}
+			prLeader.layerOwners[layerID] = owners
+		}
+	}
+	lo := prLeader.layerOwners
+
+	for dest, layerIDs := range a {
+		// compare it with the current status
+		nodeStatus := prLeader.status[dest]
+
+		for layerID := range layerIDs {
+			if _, ok := nodeStatus[layerID]; !ok {
+				// register a new job
+				sender := dest
+				status := SendingDirectly
+				if owners, ok := lo[layerID]; ok && len(owners) > 0 {
+					// one of the owners becomes the sender (for retransmission)
+					for owner := range owners {
+						sender = owner
+						status = Pending
+						break
+					}
+				}
+
+				// create new jobs map if it doesn't exist
+				if _, ok := prLeader.jobsMap[layerID]; !ok {
+					prLeader.jobsMap[layerID] = make(jobs)
+				}
+				prLeader.jobsMap[layerID][dest] = jobInfo{sender, status}
+			}
+		}
+	}
+
+	prLeader.mu.Unlock()
+
+	for node := range a {
+		// assigns a new job to each node
+		err := prLeader.assignNewJob(node)
+		if err != nil {
+			log.Error().Err(err).Msgf("failed to assign a new job to node %v", node)
+		}
+	}
+
+	// send layers which are stored only by the leader directly to the dest
+	for layerID, jobs := range prLeader.jobsMap {
+		for dest, jobInfo := range jobs {
+			if jobInfo.status == SendingDirectly {
+				layer, ok := prLeader.layers[layerID]
+				if !ok {
+					log.Warn().Msgf("no layers found for layerID:%v", layerID)
+				}
+				err := prLeader.sendLayer(dest, layerID, layer)
+				if err != nil {
+					log.Error().Err(err).Msgf("couldn't send a layer %v", layerID)
+				}
+			}
+		}
+	}
+}
+
+// assignNewJob assigns a new job to the node.
+// If the node has the layer another node needs, the leader asks the node to retransmit the layer.
+// Otherwise, the leader sends a layer in the job list.
+func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
+	for layer := range prLeader.layers {
+		if jobs, ok := prLeader.jobsMap[layer]; ok && len(jobs) > 0 {
+			for dest, job := range jobs {
+				if job.status == Pending || job.status == SendingIndirectly {
+					// assigns the job to the node
+					err := prLeader.sendRetransmit(layer, node, dest)
+					if err != nil {
+						return fmt.Errorf("failed to assign a new job to node %v: %w", node, err)
+					}
+					job.status = SendingRetransmit
+					job.sender = node
+
+					return nil
+				}
+			}
+		}
+	}
+
+	// As there are no layers that is associated with retransmission, then attempt indirect retransmission.
+	assignedLayerID, assignedLayerSrc, _, ok := prLeader.getFromMostLoaded()
+	if !ok {
+		log.Info().Msg("there is no job left to assign")
+		return nil
+	}
+
+	// indirect retransmission
+	err := prLeader.sendLayer(node, assignedLayerID, assignedLayerSrc)
+	if err != nil {
+		return fmt.Errorf("failed to transmit layer %v indirectly to node %v: %w", assignedLayerID, node, err)
+	}
+
+	prLeader.mu.Lock()
+	prLeader.senderLoadCounter[node]++
+	prLeader.mu.Unlock()
+
+	return nil
+}
+
+// getFromMostLoaded returns a job from the most loaded node, if any.
+func (pfLeader *PullRetransmitLeaderNode) getFromMostLoaded() (LayerID, *LayerSrc, NodeID, bool) {
+	pfLeader.mu.Lock()
+	defer pfLeader.mu.Unlock()
+
+	var maxSender NodeID
+	var maxCount uint
+	for sender, count := range pfLeader.senderLoadCounter {
+		if count > uint(maxCount) {
+			maxSender = sender
+			maxCount = count
+		}
+	}
+	if maxCount == 0 {
+		log.Debug().Msg("no pending jobs left")
+		return 0, &LayerSrc{}, 0, false
+	}
+
+	// gets one of jobs from maxSender
+	for layerID, jobs := range pfLeader.jobsMap {
+		for dest, jobInfo := range jobs {
+			if jobInfo.sender == maxSender && jobInfo.status == Pending {
+				layerSrc, ok := pfLeader.layers[layerID]
+				if !ok {
+					log.Error().Msgf("layerSrc not found for %v", layerID)
+					continue
+				}
+				jobInfo.status = SendingIndirectly
+				pfLeader.jobsMap[layerID][dest] = jobInfo
+
+				pfLeader.senderLoadCounter[maxSender]--
+
+				return layerID, layerSrc, dest, true
+			}
+		}
+	}
+
+	log.Debug().Msg("no jobs found")
+	return 0, &LayerSrc{}, 0, false
+}
+
 // Receiver
 type Receiver interface {
 	// announces its existence (with the layers it has) to leader
@@ -565,7 +849,7 @@ func (receiver *ReceiverNode) handleIncomingMsg() {
 			// receive layer
 			case *layerMsg:
 				go receiver.handleLayerMsg(v)
-			// todo: start the inference engine
+			// start the inference engine
 			case *startupMsg:
 				go receiver.handleStartupMsg(v)
 			}
@@ -620,7 +904,6 @@ func (receiver *ReceiverNode) Announce() error {
 
 	announceMsg := NewAnnounceMsg(receiver.node.GetMyID(), curLayerIDs)
 
-	// todo: conversion of a nodeID to addr
 	err = receiver.GetTransport().Send(nextHop, announceMsg)
 	return err
 }
@@ -657,7 +940,7 @@ func (rReceiver *RetransmitReceiverNode) handleIncomingMsg() {
 
 			case *retransmitMsg:
 				go rReceiver.handleRetransmitMsg(v)
-			// todo: start the inference engine
+			// start the inference engine
 			case *startupMsg:
 				go rReceiver.handleStartupMsg(v)
 			}
