@@ -338,7 +338,7 @@ func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	// add the layer to current status
 	curStatus[ackMsg.LayerID] = struct{}{}
 
-	log.Debug().Str("status", fmt.Sprint(leader.status)).Msg("status")
+	log.Debug().Str("status", fmt.Sprint(leader.status)).Msg("handleAckMsg")
 
 	// checks if the assignment is completed
 	if assignmentSatisfied(leader.assignment, leader.status) {
@@ -395,7 +395,7 @@ type RetransmitLeaderNode struct {
 	layerOwners map[LayerID]NodeIDs
 }
 
-func NewRetransmitLeaderNode(node node, layers Layers, assignment Assignment) *RetransmitLeaderNode {
+func NewRetransmitLeaderNodeBase(node node, layers Layers, assignment Assignment) *RetransmitLeaderNode {
 	leaderBase := newLeaderNodeBase(node, layers, assignment)
 
 	// initialize each value of layerOwners
@@ -404,10 +404,16 @@ func NewRetransmitLeaderNode(node node, layers Layers, assignment Assignment) *R
 		layerOwners[layerID] = make(NodeIDs)
 	}
 
-	retransmitLeader := &RetransmitLeaderNode{
+	retransmitLeaderBase := &RetransmitLeaderNode{
 		LeaderNode:  leaderBase,
 		layerOwners: layerOwners,
 	}
+
+	return retransmitLeaderBase
+}
+
+func NewRetransmitLeaderNode(node node, layers Layers, assignment Assignment) *RetransmitLeaderNode {
+	retransmitLeader := NewRetransmitLeaderNodeBase(node, layers, assignment)
 
 	retransmitLeader.handleIncomingMsg()
 
@@ -564,10 +570,10 @@ type PullRetransmitLeaderNode struct {
 }
 
 func NewPullRetransmitLeaderNode(node node, layers Layers, assignment Assignment) *PullRetransmitLeaderNode {
-	rLeader := NewRetransmitLeaderNode(node, layers, assignment)
+	rLeaderBase := NewRetransmitLeaderNodeBase(node, layers, assignment)
 
 	prLeader := &PullRetransmitLeaderNode{
-		RetransmitLeaderNode: rLeader,
+		RetransmitLeaderNode: rLeaderBase,
 		jobsMap:              make(jobsMap),
 		senderLoadCounter:    make(senderLoadCounter),
 		nodeCompletionStatus: make(map[NodeID]bool),
@@ -632,7 +638,7 @@ func (prLeader *PullRetransmitLeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	// add the layer to current status
 	curStatus[ackMsg.LayerID] = struct{}{}
 
-	log.Debug().Str("status", fmt.Sprint(prLeader.status)).Msg("status")
+	log.Debug().Str("status", fmt.Sprint(prLeader.status)).Msg("got ack msg")
 
 	// checks if the assignment is completed for the first time
 	if !prLeader.nodeCompletionStatus[ackMsg.SrcID] && assignmentSatisfied(prLeader.assignment, prLeader.status) {
@@ -649,6 +655,7 @@ func (prLeader *PullRetransmitLeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	// delete a job and assign a new job (if applicable)
 	jobInfo, ok := prLeader.jobsMap[ackMsg.LayerID][ackMsg.SrcID]
 	if ok {
+		log.Debug().Uint("node", uint(jobInfo.sender)).Uint("layerID", uint(ackMsg.LayerID)).Msg("job completed")
 		// delete completed job
 		delete(prLeader.jobsMap[ackMsg.LayerID], ackMsg.SrcID)
 
@@ -869,7 +876,7 @@ func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded(node NodeID) (LayerI
 		}
 	}
 
-	log.Debug().Msg("no jobs found")
+	log.Debug().Uint("node", uint(node)).Msg("no jobs found")
 	return 0, &LayerSrc{}, 0, 0, false
 }
 
@@ -953,7 +960,7 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 			Size:      uint(len(*layerMsg.LayerData)),
 			Offset:    0,
 		}
-
+		log.Debug().Msgf("saved a layer %v in %s", layerMsg.LayerID, layerSrc.Fp)
 	} else {
 		// load the layer to its memory
 		layerSrc = LayerSrc{
@@ -962,6 +969,7 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 			Size:      uint(len(*layerMsg.LayerData)),
 			Offset:    0,
 		}
+		log.Debug().Msgf("saved a layer %v in memory", layerMsg.LayerID)
 	}
 
 	// store layer
