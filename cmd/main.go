@@ -93,6 +93,9 @@ func RunLeader(myID distributor.NodeID, n *distributor.N, t distributor.Transpor
 		leaderNode = distributor.NewLeaderNode(n, layers, assignment)
 	case 1:
 		leaderNode = distributor.NewRetransmitLeaderNode(n, layers, assignment)
+	case 2:
+		leaderNode = distributor.NewPullRetransmitLeaderNode(n, layers, assignment)
+
 	default:
 		return fmt.Errorf("unknown mode")
 	}
@@ -121,6 +124,8 @@ func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor
 	case 0:
 		receiverNode = distributor.NewReceiverNode(n, layers)
 	case 1:
+		receiverNode = distributor.NewRetransmitReceiverNode(n, layers)
+	case 2:
 		receiverNode = distributor.NewRetransmitReceiverNode(n, layers)
 	default:
 		return fmt.Errorf("unknown mode")
