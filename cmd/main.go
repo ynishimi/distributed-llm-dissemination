@@ -135,9 +135,7 @@ func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor
 	if err != nil {
 		log.Error().Err(err).Msg("receiver failed to execute")
 	}
-
-	// infinite loop
-	select {}
+	return nil
 }
 
 func executeReceiver(receiver distributor.Receiver) error {
