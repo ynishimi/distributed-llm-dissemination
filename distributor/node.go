@@ -640,18 +640,29 @@ func (prLeader *PullRetransmitLeaderNode) handleAckMsg(ackMsg *ackMsg) {
 		prLeader.mu.Unlock()
 		prLeader.sendStartup()
 		// notify the assignment to be ready
+		log.Info().Uint("id", uint(prLeader.GetMyID())).Msgf("startup")
 		prLeader.readyChan <- prLeader.assignment
 	} else {
 		prLeader.mu.Unlock()
 	}
 
-	// delete a job (if applicable)
-	delete(prLeader.jobsMap[ackMsg.LayerID], ackMsg.SrcID)
+	// delete a job and assign a new job (if applicable)
+	jobInfo, ok := prLeader.jobsMap[ackMsg.LayerID][ackMsg.SrcID]
+	if ok {
+		// delete completed job
+		delete(prLeader.jobsMap[ackMsg.LayerID], ackMsg.SrcID)
 
-	// assign a new job
-	err := prLeader.assignNewJob(ackMsg.SrcID)
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to assign a new job after its ack %v", ackMsg.SrcID)
+		// assign a new job to the sender of the job
+		err := prLeader.assignNewJob(jobInfo.sender)
+		if err != nil {
+			log.Error().Err(err).Msgf("failed to assign a new job after its ack %v", jobInfo.sender)
+		}
+	} else {
+		log.Debug().Msgf("indirect retransmit continues")
+		err := prLeader.assignNewJob(ackMsg.SrcID)
+		if err != nil {
+			log.Error().Err(err).Msgf("failed to assign a new job after its ack %v", ackMsg.SrcID)
+		}
 	}
 }
 
@@ -680,7 +691,7 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 		for layerID := range layerIDs {
 			if _, ok := nodeStatus[layerID]; !ok {
 				// register a new job
-				sender := dest
+				sender := prLeader.GetMyID()
 				status := SendingDirectly
 				if owners, ok := lo[layerID]; ok && len(owners) > 0 {
 					// one of the owners becomes the sender (for retransmission)
@@ -741,9 +752,10 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 	for layer := range nodeStatus {
 		if layerJobs, ok := prLeader.jobsMap[layer]; ok && len(layerJobs) > 0 {
 			for dest, jobInfo := range layerJobs {
+				log.Debug().Uint("sender", uint(jobInfo.sender)).Msg("sender")
 				// if there is a still a job assigned to it, assign the job.
 				if jobInfo.sender == node && (jobInfo.status == Pending || jobInfo.status == SendingIndirectly) {
-
+					log.Debug().Msgf("pass a new job to node %v", node)
 					// assigns the job to the node
 					err := prLeader.sendRetransmit(layer, node, dest)
 					if err != nil {
@@ -768,6 +780,7 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 			for dest, jobInfo := range layerJobs {
 				// if there is a still a job assigned to it, assign the job.
 				if jobInfo.status == Pending {
+					log.Debug().Msgf("assign a new job to node %v", node)
 					// assigns the job to the node
 					err := prLeader.sendRetransmit(layer, node, dest)
 					if err != nil {
@@ -791,12 +804,13 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 	}
 
 	// As there are no layers that is associated with retransmission, then attempt indirect retransmission.
-	stolenLayerID, stolenLayerSrc, dest, stolenSender, ok := prLeader.getFromMostLoaded()
+	stolenLayerID, stolenLayerSrc, dest, stolenSender, ok := prLeader.getFromMostLoaded(node)
 	if !ok {
-		log.Info().Msg("there is no job left to assign")
+		log.Info().Uint("id", uint(prLeader.GetMyID())).Msg("there is no job left to assign")
 		return nil
 	}
 
+	log.Debug().Msgf("steal a job from the most loaded node to node %v", node)
 	// indirect retransmission
 	// as this layer will be sent only for indirect retransmission, the layer should be stored in disk
 	err := prLeader.sendLayer(node, stolenLayerID, stolenLayerSrc, true)
@@ -819,7 +833,7 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 }
 
 // getFromMostLoaded returns a job from the most loaded node, if any.
-func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded() (LayerID, *LayerSrc, NodeID, NodeID, bool) {
+func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded(node NodeID) (LayerID, *LayerSrc, NodeID, NodeID, bool) {
 	prLeader.mu.Lock()
 	defer prLeader.mu.Unlock()
 
@@ -840,6 +854,10 @@ func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded() (LayerID, *LayerSr
 	for layerID, jobs := range prLeader.jobsMap {
 		for dest, jobInfo := range jobs {
 			if jobInfo.sender == maxSender && jobInfo.status == Pending {
+				// don't get a job to myself
+				if dest == node {
+					continue
+				}
 				layerSrc, ok := prLeader.layers[layerID]
 				if !ok {
 					log.Error().Msgf("layerSrc not found for %v", layerID)
