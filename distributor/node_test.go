@@ -32,7 +32,7 @@ func createLeaderAndEmptyReceivers(transports []distributor.Transport, assignmen
 
 		// creates a new receiver node with no layers
 		node := distributor.NewNode(distributor.NodeID(int(LeaderNodeID)+i+1), LeaderNodeID, receiverTransport)
-		receiver := distributor.NewReceiverNode(node, make(distributor.Layers))
+		receiver := distributor.NewReceiverNode(node, make(distributor.Layers), "")
 		receivers[i] = receiver
 	}
 	return leader, receivers
@@ -222,7 +222,7 @@ func TestSimpleDistribution(t *testing.T) {
 			return distributor.NewRetransmitLeaderNode(n, layers, assignment)
 		}
 		receiverFactory := func(n *distributor.N, layers distributor.Layers) distributor.Receiver {
-			return distributor.NewRetransmitReceiverNode(n, layers)
+			return distributor.NewRetransmitReceiverNode(n, layers, "")
 		}
 		leader, receivers := createRetransmitLeaderAndReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers, leaderFactory, receiverFactory)
 		_, ready := execDistribution(t, assignment, leader, receivers)
@@ -249,7 +249,7 @@ func TestSimpleDistribution(t *testing.T) {
 			return distributor.NewPullRetransmitLeaderNode(n, layers, assignment)
 		}
 		receiverFactory := func(n *distributor.N, layers distributor.Layers) distributor.Receiver {
-			return distributor.NewRetransmitReceiverNode(n, layers)
+			return distributor.NewRetransmitReceiverNode(n, layers, "")
 		}
 		leader, receivers := createRetransmitLeaderAndReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers, leaderFactory, receiverFactory)
 		_, ready := execDistribution(t, assignment, leader, receivers)
@@ -302,7 +302,7 @@ func BenchmarkSimpleDistributionTcp(b *testing.B) {
 			return distributor.NewRetransmitLeaderNode(n, layers, assignment)
 		}
 		receiverFactory := func(n *distributor.N, layers distributor.Layers) distributor.Receiver {
-			return distributor.NewRetransmitReceiverNode(n, layers)
+			return distributor.NewRetransmitReceiverNode(n, layers, "")
 		}
 		leader, receivers := createRetransmitLeaderAndReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers, leaderFactory, receiverFactory)
 		start, ready := execDistribution(b, assignment, leader, receivers)

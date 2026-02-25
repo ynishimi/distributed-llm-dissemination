@@ -3,6 +3,7 @@ package distributor
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/rs/zerolog/log"
@@ -313,7 +314,8 @@ func (leader *LeaderNode) sendLayers() {
 			if !ok {
 				log.Warn().Msgf("no layers found for layerID:%v", layerID)
 			}
-			err := leader.sendLayer(nodeID, layerID, layer)
+			// always saves to the memory this time
+			err := leader.sendLayer(nodeID, layerID, layer, false)
 			if err != nil {
 				log.Error().Err(err).Msgf("couldn't send a layer %v", layerID)
 			}
@@ -321,9 +323,9 @@ func (leader *LeaderNode) sendLayers() {
 	}
 }
 
-func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layerSrc *LayerSrc) error {
+func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layerSrc *LayerSrc, saveDisk bool) error {
 	log.Debug().Msgf("sending layer %v", layerID)
-	layerMsg := NewLayerMsg(leader.node.GetMyID(), layerID, layerSrc)
+	layerMsg := NewLayerMsg(leader.node.GetMyID(), layerID, layerSrc, saveDisk)
 	err := leader.GetTransport().Send(dest, layerMsg)
 	return err
 }
@@ -505,7 +507,8 @@ func (rLeader *RetransmitLeaderNode) sendLayers() {
 				if !ok {
 					log.Warn().Msgf("no layers found for layerID:%v", layerID)
 				}
-				err := rLeader.sendLayer(nodeID, layerID, layer)
+				// always saves to the memory this time
+				err := rLeader.sendLayer(nodeID, layerID, layer, false)
 				if err != nil {
 					log.Error().Err(err).Msgf("couldn't send a layer %v", layerID)
 				}
@@ -716,7 +719,8 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 				if !ok {
 					log.Warn().Msgf("no layers found for layerID:%v", layerID)
 				}
-				err := prLeader.sendLayer(dest, layerID, layer)
+				// the layers should be saved in memory, as the layer will be used at the destination node
+				err := prLeader.sendLayer(dest, layerID, layer, false)
 				if err != nil {
 					log.Error().Err(err).Msgf("couldn't send a layer %v", layerID)
 				}
@@ -794,7 +798,8 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 	}
 
 	// indirect retransmission
-	err := prLeader.sendLayer(node, stolenLayerID, stolenLayerSrc)
+	// as this layer will be sent only for indirect retransmission, the layer should be stored in disk
+	err := prLeader.sendLayer(node, stolenLayerID, stolenLayerSrc, true)
 	if err != nil {
 		return fmt.Errorf("failed to transmit layer %v indirectly to node %v: %w", stolenLayerID, node, err)
 	}
@@ -861,21 +866,23 @@ type Receiver interface {
 
 type ReceiverNode struct {
 	node
-	layers    Layers
-	readyChan chan struct{}
-	mu        sync.RWMutex
+	layers      Layers
+	storagePath string
+	readyChan   chan struct{}
+	mu          sync.RWMutex
 }
 
-func newReceiverNodeBase(node node, layers Layers) *ReceiverNode {
+func newReceiverNodeBase(node node, layers Layers, storagePath string) *ReceiverNode {
 	return &ReceiverNode{
-		node:      node,
-		readyChan: make(chan struct{}),
-		layers:    layers,
+		node:        node,
+		storagePath: storagePath,
+		readyChan:   make(chan struct{}),
+		layers:      layers,
 	}
 }
 
-func NewReceiverNode(node node, layers Layers) *ReceiverNode {
-	receiverNode := newReceiverNodeBase(node, layers)
+func NewReceiverNode(node node, layers Layers, storagePath string) *ReceiverNode {
+	receiverNode := newReceiverNodeBase(node, layers, storagePath)
 
 	receiverNode.handleIncomingMsg()
 
@@ -904,12 +911,39 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	receiver.mu.Lock()
 	defer receiver.mu.Unlock()
 
-	// load the layer to its memory
-	layerSrc := LayerSrc{
-		InmemData: layerMsg.LayerData,
-		Fp:        "",
-		Size:      uint(len(*layerMsg.LayerData)),
-		Offset:    0,
+	var layerSrc LayerSrc
+
+	if layerMsg.SaveDisk {
+		// save the layer to the disk
+		// save as myID/layerID.layer
+		dir := filepath.Join(receiver.storagePath, "layers/", fmt.Sprintf("%d", receiver.GetMyID()))
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Error().Err(err).Msg("failed to create directory")
+		}
+		path := filepath.Join(dir, fmt.Sprintf("%d.layer", layerMsg.LayerID))
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			err = os.WriteFile(path, *layerMsg.LayerData, 0644)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to write file")
+			}
+			log.Debug().Str("storagePath", receiver.storagePath).Msg("saved to storage")
+		}
+
+		layerSrc = LayerSrc{
+			InmemData: nil,
+			Fp:        path,
+			Size:      uint(len(*layerMsg.LayerData)),
+			Offset:    0,
+		}
+
+	} else {
+		// load the layer to its memory
+		layerSrc = LayerSrc{
+			InmemData: layerMsg.LayerData,
+			Fp:        "",
+			Size:      uint(len(*layerMsg.LayerData)),
+			Offset:    0,
+		}
 	}
 
 	// store layer
@@ -958,8 +992,8 @@ type RetransmitReceiverNode struct {
 	*ReceiverNode
 }
 
-func NewRetransmitReceiverNode(node node, layers Layers) *RetransmitReceiverNode {
-	receiverBase := newReceiverNodeBase(node, layers)
+func NewRetransmitReceiverNode(node node, layers Layers, storagePath string) *RetransmitReceiverNode {
+	receiverBase := newReceiverNodeBase(node, layers, storagePath)
 
 	rReceiverNode := &RetransmitReceiverNode{
 		ReceiverNode: receiverBase,
@@ -1000,7 +1034,8 @@ func (rReceiver *RetransmitReceiverNode) handleRetransmitMsg(retransmitMsg *retr
 	rReceiver.addNode(retransmitMsg.DestID)
 
 	// send (retransmit) layer to dest.
-	layerMsg := NewLayerMsg(rReceiver.GetMyID(), retransmitMsg.LayerID, layer)
+	// the layer should be stored in memory
+	layerMsg := NewLayerMsg(rReceiver.GetMyID(), retransmitMsg.LayerID, layer, false)
 	err := rReceiver.GetTransport().Send(retransmitMsg.DestID, layerMsg)
 	if err != nil {
 		log.Error().Err(err).Msgf("failed to send layer to %v", retransmitMsg.DestID)

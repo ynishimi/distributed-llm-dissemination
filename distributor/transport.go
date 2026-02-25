@@ -41,6 +41,7 @@ type tempLayerInfo struct {
 	SrcID     NodeID
 	LayerID   LayerID
 	LayerSize int
+	SaveDisk  bool
 }
 
 // AddrRegistory stores the mapping of NodeID and its addr.
@@ -120,7 +121,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			// moves the decoder
 			d = json.NewDecoder(conn)
 
-			t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, &data}
+			t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, &data, temp.SaveDisk}
 			continue
 		}
 
@@ -207,7 +208,7 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 
 	if layerMsg, ok := message.(*layerMsg); ok {
 		// sends header and layer separately for avoiding unnecesary memory occupation due to decoding
-		header := tempLayerInfo{layerMsg.SrcID, layerMsg.LayerID, len(*layerMsg.LayerData)}
+		header := tempLayerInfo{layerMsg.SrcID, layerMsg.LayerID, len(*layerMsg.LayerData), layerMsg.SaveDisk}
 
 		// sends header first
 		marshaledHdr, err := json.Marshal(header)

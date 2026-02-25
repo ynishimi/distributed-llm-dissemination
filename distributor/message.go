@@ -120,10 +120,12 @@ type layerMsg struct {
 	SrcID     NodeID
 	LayerID   LayerID
 	LayerData *LayerData
+	// SaveDisk stores the flag of if the layer is saved in the disk or not
+	SaveDisk bool
 }
 
 // NewLayerMsg creates a new layerMsg. If the layer is not in memory, it fetches the file from the disk.
-func NewLayerMsg(src NodeID, layerID LayerID, layerSrc *LayerSrc) *layerMsg {
+func NewLayerMsg(src NodeID, layerID LayerID, layerSrc *LayerSrc, saveDisk bool) *layerMsg {
 	layerData, err := layerSrc.Read()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get layer")
@@ -133,6 +135,7 @@ func NewLayerMsg(src NodeID, layerID LayerID, layerSrc *LayerSrc) *layerMsg {
 		SrcID:     src,
 		LayerID:   layerID,
 		LayerData: layerData,
+		SaveDisk:  saveDisk,
 	}
 }
 
@@ -149,7 +152,7 @@ func (m *layerMsg) Payload() []byte {
 }
 
 func (m *layerMsg) String() string {
-	return fmt.Sprintf("from %v: layer %v", m.SrcID, m.LayerID)
+	return fmt.Sprintf("from %v: layer %v saveDisk: %v", m.SrcID, m.LayerID, m.SaveDisk)
 }
 
 // startupMsg for start the inference engine on the receiver.

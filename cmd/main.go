@@ -122,11 +122,11 @@ func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor
 	var receiverNode distributor.Receiver
 	switch mode {
 	case 0:
-		receiverNode = distributor.NewReceiverNode(n, layers)
+		receiverNode = distributor.NewReceiverNode(n, layers, *storagePath)
 	case 1:
-		receiverNode = distributor.NewRetransmitReceiverNode(n, layers)
+		receiverNode = distributor.NewRetransmitReceiverNode(n, layers, *storagePath)
 	case 2:
-		receiverNode = distributor.NewRetransmitReceiverNode(n, layers)
+		receiverNode = distributor.NewRetransmitReceiverNode(n, layers, *storagePath)
 	default:
 		return fmt.Errorf("unknown mode")
 	}
