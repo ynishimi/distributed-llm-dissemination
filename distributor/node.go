@@ -1,9 +1,12 @@
 package distributor
 
 import (
+	"cmp"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"github.com/rs/zerolog/log"
@@ -545,8 +548,8 @@ func (rLeader *RetransmitLeaderNode) sendRetransmit(layerID LayerID, owner NodeI
 type jobStatus int
 
 const (
-	Pending         jobStatus = iota
-	SendingDirectly           // todo: delete?
+	Pending jobStatus = iota
+	// SendingDirectly           // todo: delete?
 	SendingIndirectly
 	SendingRetransmit
 	// Done
@@ -681,7 +684,7 @@ func (prLeader *PullRetransmitLeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	}
 }
 
-// This time, the leader sends only the layers no other node has. Otherwise, it asks for retransmission.
+// This time, the leader sends only the layers no other node has initially. Otherwise, it asks for retransmission.
 func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 	prLeader.mu.Lock()
 	a := prLeader.assignment
@@ -707,33 +710,48 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 			prLeader.layerOwners[layerID] = owners
 		}
 	}
-	lo := prLeader.layerOwners
+	layerOwners := prLeader.layerOwners
 
+	// get the slice of layers sored in the ascending order regarding the number of owners
+	sortedLayers := make([]LayerID, 0, len(layerOwners))
+	for layerID := range layerOwners {
+		sortedLayers = append(sortedLayers, layerID)
+	}
+	slices.SortFunc(sortedLayers, func(a, b LayerID) int {
+		return cmp.Compare(len(layerOwners[a]), len(layerOwners[b]))
+	})
+
+	// initialize jobsMap
 	for dest, layerIDs := range a {
-		// compare it with the current status
 		nodeStatus := prLeader.status[dest]
 
 		for layerID := range layerIDs {
 			if _, ok := nodeStatus[layerID]; !ok {
-				// register a new job
-				sender := prLeader.GetMyID()
-				status := SendingDirectly
-				if owners, ok := lo[layerID]; ok && len(owners) > 0 {
-					// one of the owners becomes the sender (for retransmission)
-					for owner := range owners {
-						sender = owner
-						status = Pending
-						break
-					}
-				}
-
 				// create new jobs map if it doesn't exist
 				if _, ok := prLeader.jobsMap[layerID]; !ok {
 					prLeader.jobsMap[layerID] = make(jobs)
 				}
-				prLeader.jobsMap[layerID][dest] = jobInfo{sender, status}
-				prLeader.senderLoadCounter[sender]++
+				// register the layer ID and its destination (the job assignment is yet to be decided)
+				prLeader.jobsMap[layerID][dest] = jobInfo{}
 			}
+		}
+	}
+
+	// initialize job counter
+	for nodeID := range prLeader.status {
+		if _, ok := prLeader.senderLoadCounter[nodeID]; !ok {
+			prLeader.senderLoadCounter[nodeID] = 0
+		}
+	}
+
+	// assign jobs using sortedLayers
+	for _, layerID := range sortedLayers {
+		for dest := range prLeader.jobsMap[layerID] {
+			// assign a job to the node with minimum job
+			sender := prLeader.getMinLoadedSender(layerID)
+			prLeader.jobsMap[layerID][dest] = jobInfo{sender, Pending}
+			prLeader.senderLoadCounter[sender]++
+			log.Debug().Msgf("job assignment: layer: %v, sender: %v", layerID, sender)
 		}
 	}
 
@@ -834,6 +852,23 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 	return nil
 }
 
+// getMinLoadedSender returns the sender with minimum jobs that has specified layer ID
+func (prLeader *PullRetransmitLeaderNode) getMinLoadedSender(layerID LayerID) NodeID {
+
+	var minSender NodeID
+	var minCount uint
+	minCount = math.MaxUint
+	for sender, count := range prLeader.senderLoadCounter {
+		layerIDs := prLeader.status[sender]
+		if _, ok := layerIDs[layerID]; ok && count < minCount {
+			minSender = sender
+			minCount = count
+		}
+	}
+
+	return minSender
+}
+
 // getFromMostLoaded returns a job from the most loaded node, if any.
 func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded(node NodeID) (LayerID, *LayerSrc, NodeID, NodeID, bool) {
 	prLeader.mu.Lock()
@@ -842,7 +877,7 @@ func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded(node NodeID) (LayerI
 	var maxSender NodeID
 	var maxCount uint
 	for sender, count := range prLeader.senderLoadCounter {
-		if count > uint(maxCount) {
+		if count > maxCount {
 			maxSender = sender
 			maxCount = count
 		}
