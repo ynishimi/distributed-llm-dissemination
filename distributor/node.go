@@ -791,7 +791,7 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 	}
 
 	// As there are no layers that is associated with retransmission, then attempt indirect retransmission.
-	stolenLayerID, stolenLayerSrc, stolenSender, ok := prLeader.getFromMostLoaded()
+	stolenLayerID, stolenLayerSrc, dest, stolenSender, ok := prLeader.getFromMostLoaded()
 	if !ok {
 		log.Info().Msg("there is no job left to assign")
 		return nil
@@ -808,10 +808,10 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 	prLeader.senderLoadCounter[stolenSender]--
 	prLeader.senderLoadCounter[node]++
 
-	jobInfo := prLeader.jobsMap[stolenLayerID][node]
+	jobInfo := prLeader.jobsMap[stolenLayerID][dest]
 	jobInfo.sender = node
 	jobInfo.status = SendingIndirectly
-	prLeader.jobsMap[stolenLayerID][stolenSender] = jobInfo
+	prLeader.jobsMap[stolenLayerID][dest] = jobInfo
 
 	prLeader.mu.Unlock()
 
@@ -819,7 +819,7 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 }
 
 // getFromMostLoaded returns a job from the most loaded node, if any.
-func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded() (LayerID, *LayerSrc, NodeID, bool) {
+func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded() (LayerID, *LayerSrc, NodeID, NodeID, bool) {
 	prLeader.mu.Lock()
 	defer prLeader.mu.Unlock()
 
@@ -833,12 +833,12 @@ func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded() (LayerID, *LayerSr
 	}
 	if maxCount == 0 {
 		log.Debug().Msg("no pending jobs left")
-		return 0, &LayerSrc{}, 0, false
+		return 0, &LayerSrc{}, 0, 0, false
 	}
 
 	// gets one of jobs from maxSender
 	for layerID, jobs := range prLeader.jobsMap {
-		for _, jobInfo := range jobs {
+		for dest, jobInfo := range jobs {
 			if jobInfo.sender == maxSender && jobInfo.status == Pending {
 				layerSrc, ok := prLeader.layers[layerID]
 				if !ok {
@@ -846,13 +846,13 @@ func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded() (LayerID, *LayerSr
 					continue
 				}
 
-				return layerID, layerSrc, jobInfo.sender, true
+				return layerID, layerSrc, dest, jobInfo.sender, true
 			}
 		}
 	}
 
 	log.Debug().Msg("no jobs found")
-	return 0, &LayerSrc{}, 0, false
+	return 0, &LayerSrc{}, 0, 0, false
 }
 
 // Receiver
