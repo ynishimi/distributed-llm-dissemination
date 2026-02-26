@@ -16,19 +16,22 @@ var storagePath = flag.String("s", "", "path of storing layers")
 var mode = flag.Int("m", -1, "0: naive, 1: layer retransmit")
 var layerSetup = flag.Bool("l", false, "create layer files and exit")
 
-const SaveDisk = true
-
 func main() {
 	// get input
 	flag.Parse()
 	if *myID < 0 || *fileName == "" {
-		fmt.Println("usage: -id  0 -f config.json -s . -m 0 -l false")
+		fmt.Println("usage: -id 0 -f config.json -s . -m 2 -l true")
 		fmt.Println()
 		PrintJsonExample()
 		return
 	}
 	myID := distributor.NodeID(*myID)
 	mode := uint(*mode)
+
+	var saveDisk = true
+	if *storagePath == "" {
+		saveDisk = false
+	}
 
 	// read JSON files
 	conf, err := ReadJson(*fileName)
@@ -49,7 +52,7 @@ func main() {
 	numPeers := uint(len(conf.Nodes))
 
 	// // load (dummy) layers
-	layers := CreateLayers(myConf, conf.LayerSize, SaveDisk)
+	layers := CreateLayers(myConf, conf.LayerSize, saveDisk)
 
 	if *layerSetup {
 		log.Info().Msg("layer set up")
