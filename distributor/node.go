@@ -751,7 +751,7 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 			sender := prLeader.getMinLoadedSender(layerID)
 			prLeader.jobsMap[layerID][dest] = jobInfo{sender, Pending}
 			prLeader.senderLoadCounter[sender]++
-			log.Debug().Msgf("job assignment: layer: %v, sender: %v", layerID, sender)
+			log.Info().Msgf("job assignment: layer: %v, sender: %v", layerID, sender)
 		}
 	}
 
@@ -836,13 +836,13 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 	prLeader.mu.Unlock()
 
 	// As there are no layers that is associated with retransmission, then attempt indirect retransmission.
-	stolenLayerID, stolenLayerSrc, _, _, ok := prLeader.getFromMostLoaded(node)
+	stolenLayerID, stolenLayerSrc, _, prevNode, ok := prLeader.getFromMostLoaded(node)
 	if !ok {
 		log.Info().Uint("id", uint(prLeader.GetMyID())).Msg("there is no job left to assign")
 		return nil
 	}
 
-	log.Debug().Msgf("steal a job from the most loaded node to node %v", node)
+	log.Debug().Msgf("steal a job from the most loaded node (%v) to node %v", prevNode, node)
 	// indirect retransmission
 	// as this layer will be sent only for indirect retransmission, the layer should be stored in disk
 	err := prLeader.sendLayer(node, stolenLayerID, stolenLayerSrc, true)
@@ -901,14 +901,15 @@ func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded(node NodeID) (LayerI
 					continue
 				}
 
-				prLeader.senderLoadCounter[jobInfo.sender]--
+				prevSender := jobInfo.sender
+				prLeader.senderLoadCounter[prevSender]--
 				prLeader.senderLoadCounter[node]++
 
 				jobInfo.sender = node
 				jobInfo.status = SendingIndirectly
 				prLeader.jobsMap[layerID][dest] = jobInfo
 
-				return layerID, layerSrc, dest, jobInfo.sender, true
+				return layerID, layerSrc, dest, prevSender, true
 			}
 		}
 	}
