@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -557,8 +558,9 @@ const (
 
 type jobInfo struct {
 	// node which sends the layer to the destination
-	sender NodeID
-	status jobStatus
+	sender         NodeID
+	status         jobStatus
+	retransmitTime *time.Time
 }
 
 // key: dest of the layer, val: sender and status
@@ -571,11 +573,20 @@ type jobsMap map[LayerID]jobs
 // key: sender, val: count
 type senderLoadCounter map[NodeID]uint
 
+// nodePerformance stores the average throughput and the number of completed jobs achieved by the node
+type nodePerformance map[NodeID]struct {
+	aveThroughput       float64
+	completedJobCounter uint
+}
+
 // PullRetransmitLeaderNode implements pull-based transmit leader node.
 type PullRetransmitLeaderNode struct {
 	*RetransmitLeaderNode
 	jobsMap           jobsMap
 	senderLoadCounter senderLoadCounter
+
+	nodePerformance nodePerformance
+
 	// nodeCompletionStatus stores if the node satisfies the assignment
 	nodeCompletionStatus map[NodeID]bool
 }
@@ -587,6 +598,9 @@ func NewPullRetransmitLeaderNode(node node, layers Layers, assignment Assignment
 		RetransmitLeaderNode: rLeaderBase,
 		jobsMap:              make(jobsMap),
 		senderLoadCounter:    make(senderLoadCounter),
+
+		nodePerformance: make(nodePerformance),
+
 		nodeCompletionStatus: make(map[NodeID]bool),
 	}
 
@@ -666,9 +680,35 @@ func (prLeader *PullRetransmitLeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	// delete a job and assign a new job (if applicable)
 	jobInfo, ok := prLeader.jobsMap[ackMsg.LayerID][ackMsg.SrcID]
 	if ok {
-		log.Debug().Uint("node", uint(jobInfo.sender)).Uint("layerID", uint(ackMsg.LayerID)).Msg("job completed")
+		log.Info().Uint("node", uint(jobInfo.sender)).Uint("layerID", uint(ackMsg.LayerID)).Msg("job completed")
+
+		throughput := time.Since(*jobInfo.retransmitTime)
+		log.Debug().Str("throughput", throughput.String()).Send()
+
+		prLeader.mu.Lock()
+
+		nodePerformance, ok := prLeader.nodePerformance[jobInfo.sender]
+		if !ok {
+			// initialization
+			a := struct {
+				aveThroughput       float64
+				completedJobCounter uint
+			}{0, 0}
+			prLeader.nodePerformance[jobInfo.sender] = a
+		}
+
+		curAveThroughput := (float64(throughput) + nodePerformance.aveThroughput) / float64(nodePerformance.completedJobCounter+1)
+		prLeader.nodePerformance[jobInfo.sender] = struct {
+			aveThroughput       float64
+			completedJobCounter uint
+		}{curAveThroughput, nodePerformance.completedJobCounter + 1}
+
+		log.Debug().Str("ave throughput", time.Duration(curAveThroughput).String()).Uint("completed jobs", nodePerformance.completedJobCounter+1).Send()
+
 		// delete completed job
 		delete(prLeader.jobsMap[ackMsg.LayerID], ackMsg.SrcID)
+
+		prLeader.mu.Unlock()
 
 		// assign a new job to the sender of the job
 		err := prLeader.assignNewJob(jobInfo.sender)
@@ -749,7 +789,7 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 		for dest := range prLeader.jobsMap[layerID] {
 			// assign a job to the node with minimum job
 			sender := prLeader.getMinLoadedSender(layerID)
-			prLeader.jobsMap[layerID][dest] = jobInfo{sender, Pending}
+			prLeader.jobsMap[layerID][dest] = jobInfo{sender, Pending, nil}
 			prLeader.senderLoadCounter[sender]++
 			log.Info().Msgf("job assignment: layer: %v, sender: %v", layerID, sender)
 		}
@@ -783,11 +823,14 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 	for layer := range nodeStatus {
 		if layerJobs, ok := prLeader.jobsMap[layer]; ok && len(layerJobs) > 0 {
 			for dest, jobInfo := range layerJobs {
-				log.Debug().Uint("sender", uint(jobInfo.sender)).Msg("sender")
+				log.Debug().Uint("sender", uint(jobInfo.sender)).Send()
 				// if there is a still a job assigned to it, assign the job.
 				if jobInfo.sender == node && (jobInfo.status == Pending || jobInfo.status == SendingIndirectly) {
 					log.Debug().Msgf("pass a new job to node %v", node)
 					jobInfo.status = SendingRetransmit
+					// set timestamp
+					now := time.Now()
+					jobInfo.retransmitTime = &now
 					prLeader.jobsMap[layer][dest] = jobInfo
 					prLeader.senderLoadCounter[node]--
 
@@ -817,6 +860,9 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 					// update the jobInfo with node
 					jobInfo.sender = node
 					jobInfo.status = SendingRetransmit
+					// set timestamp
+					now := time.Now()
+					jobInfo.retransmitTime = &now
 					prLeader.jobsMap[layer][dest] = jobInfo
 
 					prLeader.mu.Unlock()

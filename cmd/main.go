@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"github.com/ynishimi/distributed-llm-dissemination/distributor"
@@ -15,18 +16,25 @@ var fileName = flag.String("f", "", "filename of topology JSON file")
 var storagePath = flag.String("s", "", "path of storing layers")
 var mode = flag.Int("m", -1, "0: naive, 1: layer retransmit")
 var layerSetup = flag.Bool("l", false, "create layer files and exit")
+var verbose = flag.Bool("v", false, "output debug messages")
 
 func main() {
 	// get input
 	flag.Parse()
 	if *myID < 0 || *fileName == "" {
-		fmt.Println("usage: -id 0 -f config.json -s . -m 2 -l true")
+		fmt.Println("usage: -id 0 -f config.json -s . -m 2 -l -v")
 		fmt.Println()
 		PrintJsonExample()
 		return
 	}
 	myID := distributor.NodeID(*myID)
 	mode := uint(*mode)
+
+	if *verbose {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	} else {
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	}
 
 	var saveDisk = true
 	if *storagePath == "" {
