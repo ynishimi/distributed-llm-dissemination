@@ -920,18 +920,33 @@ func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded(node NodeID) (LayerI
 	prLeader.mu.Lock()
 	defer prLeader.mu.Unlock()
 
+	// get a job from the node with highest "time to finish (= throughput * number of jobs)".
 	var maxSender NodeID
-	var maxCount uint
-	for sender, count := range prLeader.senderLoadCounter {
-		if count > maxCount {
+	var maxTimeToFinish float64
+	for sender, jobCount := range prLeader.senderLoadCounter {
+		_, ok := prLeader.nodePerformance[sender]
+		if !ok {
+			// as the sender is still stuck at its first job, the node should be prioritized over other nodes
 			maxSender = sender
-			maxCount = count
+			maxTimeToFinish = math.MaxFloat64
+			break
+		}
+
+		// calculate estimated time to finish
+		timeToFinish := prLeader.nodePerformance[sender].aveThroughput * float64(jobCount)
+
+		if timeToFinish > maxTimeToFinish {
+			maxSender = sender
+			maxTimeToFinish = timeToFinish
 		}
 	}
-	if maxCount == 0 {
+
+	if maxTimeToFinish == 0 {
 		log.Debug().Msg("no pending jobs left")
 		return 0, &LayerSrc{}, 0, 0, false
 	}
+
+	log.Debug().Uint("previous sender", uint(maxSender)).Str("time to finish", time.Duration(maxTimeToFinish).String()).Send()
 
 	// gets one of jobs from maxSender
 	for layerID, jobs := range prLeader.jobsMap {
