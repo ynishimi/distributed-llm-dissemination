@@ -551,7 +551,7 @@ type jobStatus int
 const (
 	Pending jobStatus = iota
 	// SendingDirectly           // todo: delete?
-	SendingIndirectly
+	// SendingIndirectly
 	SendingRetransmit
 	// Done
 )
@@ -564,10 +564,10 @@ type jobInfo struct {
 }
 
 // key: dest of the layer, val: sender and status
-type jobs map[NodeID]jobInfo
+type jobInfos map[NodeID]jobInfo
 
 // key: layer, val: map of jobs
-type jobsMap map[LayerID]jobs
+type jobsInfoMap map[LayerID]jobInfos
 
 // senderLoadCounter counts the current load of each sender.
 // key: sender, val: count
@@ -582,7 +582,7 @@ type nodePerformance map[NodeID]struct {
 // PullRetransmitLeaderNode implements pull-based transmit leader node.
 type PullRetransmitLeaderNode struct {
 	*RetransmitLeaderNode
-	jobsMap           jobsMap
+	jobsInfoMap       jobsInfoMap
 	senderLoadCounter senderLoadCounter
 
 	nodePerformance nodePerformance
@@ -596,7 +596,7 @@ func NewPullRetransmitLeaderNode(node node, layers Layers, assignment Assignment
 
 	prLeader := &PullRetransmitLeaderNode{
 		RetransmitLeaderNode: rLeaderBase,
-		jobsMap:              make(jobsMap),
+		jobsInfoMap:          make(jobsInfoMap),
 		senderLoadCounter:    make(senderLoadCounter),
 
 		nodePerformance: make(nodePerformance),
@@ -678,49 +678,47 @@ func (prLeader *PullRetransmitLeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	}
 
 	// delete a job and assign a new job (if applicable)
-	jobInfo, ok := prLeader.jobsMap[ackMsg.LayerID][ackMsg.SrcID]
-	if ok {
-		log.Info().Uint("node", uint(jobInfo.sender)).Uint("layerID", uint(ackMsg.LayerID)).Msg("job completed")
+	jobInfo, ok := prLeader.jobsInfoMap[ackMsg.LayerID][ackMsg.SrcID]
 
-		throughput := time.Since(*jobInfo.retransmitTime)
-		log.Debug().Str("throughput", throughput.String()).Send()
+	if !ok {
+		log.Error().Uint("node", uint(jobInfo.sender)).Uint("layerID", uint(ackMsg.LayerID)).Msg("unknown job")
+		return
+	}
 
-		prLeader.mu.Lock()
+	log.Info().Uint("node", uint(jobInfo.sender)).Uint("layerID", uint(ackMsg.LayerID)).Msg("job completed")
 
-		nodePerformance, ok := prLeader.nodePerformance[jobInfo.sender]
-		if !ok {
-			// initialization
-			a := struct {
-				aveThroughput       float64
-				completedJobCounter uint
-			}{0, 0}
-			prLeader.nodePerformance[jobInfo.sender] = a
-		}
+	throughput := time.Since(*jobInfo.retransmitTime)
+	log.Debug().Str("throughput", throughput.String()).Send()
 
-		curAveThroughput := (float64(throughput) + nodePerformance.aveThroughput) / float64(nodePerformance.completedJobCounter+1)
-		prLeader.nodePerformance[jobInfo.sender] = struct {
+	prLeader.mu.Lock()
+
+	nodePerformance, ok := prLeader.nodePerformance[jobInfo.sender]
+	if !ok {
+		// initialization
+		a := struct {
 			aveThroughput       float64
 			completedJobCounter uint
-		}{curAveThroughput, nodePerformance.completedJobCounter + 1}
+		}{0, 0}
+		prLeader.nodePerformance[jobInfo.sender] = a
+	}
 
-		log.Debug().Str("ave throughput", time.Duration(curAveThroughput).String()).Uint("completed jobs", nodePerformance.completedJobCounter+1).Send()
+	curAveThroughput := (float64(throughput) + nodePerformance.aveThroughput) / float64(nodePerformance.completedJobCounter+1)
+	prLeader.nodePerformance[jobInfo.sender] = struct {
+		aveThroughput       float64
+		completedJobCounter uint
+	}{curAveThroughput, nodePerformance.completedJobCounter + 1}
 
-		// delete completed job
-		delete(prLeader.jobsMap[ackMsg.LayerID], ackMsg.SrcID)
+	log.Debug().Str("ave throughput", time.Duration(curAveThroughput).String()).Uint("completed jobs", nodePerformance.completedJobCounter+1).Send()
 
-		prLeader.mu.Unlock()
+	// delete completed job
+	delete(prLeader.jobsInfoMap[ackMsg.LayerID], ackMsg.SrcID)
 
-		// assign a new job to the sender of the job
-		err := prLeader.assignNewJob(jobInfo.sender)
-		if err != nil {
-			log.Error().Err(err).Msgf("failed to assign a new job after its ack %v", jobInfo.sender)
-		}
-	} else {
-		log.Debug().Msgf("indirect retransmit continues")
-		err := prLeader.assignNewJob(ackMsg.SrcID)
-		if err != nil {
-			log.Error().Err(err).Msgf("failed to assign a new job after its ack %v", ackMsg.SrcID)
-		}
+	prLeader.mu.Unlock()
+
+	// assign a new job to the sender of the job
+	err := prLeader.assignNewJob(jobInfo.sender)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to assign a new job after its ack %v", jobInfo.sender)
 	}
 }
 
@@ -768,11 +766,11 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 		for layerID := range layerIDs {
 			if _, ok := nodeStatus[layerID]; !ok {
 				// create new jobs map if it doesn't exist
-				if _, ok := prLeader.jobsMap[layerID]; !ok {
-					prLeader.jobsMap[layerID] = make(jobs)
+				if _, ok := prLeader.jobsInfoMap[layerID]; !ok {
+					prLeader.jobsInfoMap[layerID] = make(jobInfos)
 				}
 				// register the layer ID and its destination (the job assignment is yet to be decided)
-				prLeader.jobsMap[layerID][dest] = jobInfo{}
+				prLeader.jobsInfoMap[layerID][dest] = jobInfo{}
 			}
 		}
 	}
@@ -786,10 +784,10 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 
 	// assign jobs using sortedLayers
 	for _, layerID := range sortedLayers {
-		for dest := range prLeader.jobsMap[layerID] {
+		for dest := range prLeader.jobsInfoMap[layerID] {
 			// assign a job to the node with minimum job
 			sender := prLeader.getMinLoadedSender(layerID)
-			prLeader.jobsMap[layerID][dest] = jobInfo{sender, Pending, nil}
+			prLeader.jobsInfoMap[layerID][dest] = jobInfo{sender, Pending, nil}
 			prLeader.senderLoadCounter[sender]++
 			log.Info().Msgf("job assignment: layer: %v, sender: %v", layerID, sender)
 		}
@@ -821,17 +819,17 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 
 	// find jobs regarding the layer the node has
 	for layer := range nodeStatus {
-		if layerJobs, ok := prLeader.jobsMap[layer]; ok && len(layerJobs) > 0 {
+		if layerJobs, ok := prLeader.jobsInfoMap[layer]; ok && len(layerJobs) > 0 {
 			for dest, jobInfo := range layerJobs {
 				log.Debug().Uint("sender", uint(jobInfo.sender)).Send()
 				// if there is a still a job assigned to it, assign the job.
-				if jobInfo.sender == node && (jobInfo.status == Pending || jobInfo.status == SendingIndirectly) {
+				if jobInfo.sender == node && (jobInfo.status == Pending) {
 					log.Debug().Msgf("pass a new job to node %v", node)
 					jobInfo.status = SendingRetransmit
 					// set timestamp
 					now := time.Now()
 					jobInfo.retransmitTime = &now
-					prLeader.jobsMap[layer][dest] = jobInfo
+					prLeader.jobsInfoMap[layer][dest] = jobInfo
 					prLeader.senderLoadCounter[node]--
 
 					prLeader.mu.Unlock()
@@ -847,54 +845,36 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 		}
 	}
 
-	// if not, then tries to steal other's job which requires the layers the node has
-	for layer := range nodeStatus {
-		if layerJobs, ok := prLeader.jobsMap[layer]; ok && len(layerJobs) > 0 {
-			for dest, jobInfo := range layerJobs {
-				// if there is a still a job assigned to it, assign the job.
-				if jobInfo.status == Pending {
-					log.Debug().Msgf("assign a new job to node %v", node)
-					// as the job is stolen, we should update the jobInfo and counter
-					// decrement the count of the original sender
-					prLeader.senderLoadCounter[jobInfo.sender]--
-					// update the jobInfo with node
-					jobInfo.sender = node
-					jobInfo.status = SendingRetransmit
-					// set timestamp
-					now := time.Now()
-					jobInfo.retransmitTime = &now
-					prLeader.jobsMap[layer][dest] = jobInfo
-
-					prLeader.mu.Unlock()
-
-					// assigns the job to the node
-					err := prLeader.sendRetransmit(layer, node, dest)
-					if err != nil {
-						return fmt.Errorf("failed to assign a new job to node %v: %w", node, err)
-					}
-
-					return nil
-				}
-			}
-		}
-	}
-
 	prLeader.mu.Unlock()
 
-	// As there are no layers that is associated with retransmission, then attempt indirect retransmission.
-	stolenLayerID, stolenLayerSrc, _, prevNode, ok := prLeader.getFromMostLoaded(node)
+	// // if not, then tries to steal other's job which requires the layers the node has
+	stolenLayerID, dest, stolenSender, ok := prLeader.getFromMostLoaded(node)
 	if !ok {
 		log.Info().Uint("id", uint(prLeader.GetMyID())).Msg("there is no job left to assign")
 		return nil
 	}
 
-	log.Debug().Msgf("steal a job from the most loaded node (%v) to node %v", prevNode, node)
-	// indirect retransmission
-	// as this layer will be sent only for indirect retransmission, the layer should be stored in disk
-	err := prLeader.sendLayer(node, stolenLayerID, stolenLayerSrc, true)
+	log.Debug().Uint("layer", uint(stolenLayerID)).Msgf("steal a job from the most loaded node (%v) to node %v", stolenSender, node)
+
+	prLeader.mu.Lock()
+
+	prLeader.senderLoadCounter[stolenSender]--
+
+	jobInfo := prLeader.jobsInfoMap[stolenLayerID][dest]
+	jobInfo.sender = node
+	jobInfo.status = SendingRetransmit
+	now := time.Now()
+	jobInfo.retransmitTime = &now
+	prLeader.jobsInfoMap[stolenLayerID][dest] = jobInfo
+
+	prLeader.mu.Unlock()
+
+	// assigns the job to the node
+	err := prLeader.sendRetransmit(stolenLayerID, node, dest)
 	if err != nil {
-		return fmt.Errorf("failed to transmit layer %v indirectly to node %v: %w", stolenLayerID, node, err)
+		return fmt.Errorf("failed to assign a new job to node %v: %w", node, err)
 	}
+
 	return nil
 }
 
@@ -916,9 +896,9 @@ func (prLeader *PullRetransmitLeaderNode) getMinLoadedSender(layerID LayerID) No
 }
 
 // getFromMostLoaded returns a job from the most loaded node, if any.
-func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded(node NodeID) (LayerID, *LayerSrc, NodeID, NodeID, bool) {
-	prLeader.mu.Lock()
-	defer prLeader.mu.Unlock()
+func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded(node NodeID) (layerID LayerID, dest NodeID, prevSender NodeID, ok bool) {
+	// prLeader.mu.Lock()
+	// defer prLeader.mu.Unlock()
 
 	// get a job from the node with highest "time to finish (= throughput * number of jobs)".
 	var maxSender NodeID
@@ -943,40 +923,30 @@ func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded(node NodeID) (LayerI
 
 	if maxTimeToFinish == 0 {
 		log.Debug().Msg("no pending jobs left")
-		return 0, &LayerSrc{}, 0, 0, false
+		return 0, 0, 0, false
 	}
 
 	log.Debug().Uint("previous sender", uint(maxSender)).Str("time to finish", time.Duration(maxTimeToFinish).String()).Send()
 
 	// gets one of jobs from maxSender
-	for layerID, jobs := range prLeader.jobsMap {
-		for dest, jobInfo := range jobs {
+	for layerID := range prLeader.status[node] {
+		for dest, jobInfo := range prLeader.jobsInfoMap[layerID] {
 			if jobInfo.sender == maxSender && jobInfo.status == Pending {
-				// don't get a job to myself
-				if dest == node {
-					continue
-				}
-				layerSrc, ok := prLeader.layers[layerID]
+				// todo: is it needed?
+				_, ok := prLeader.layers[layerID]
 				if !ok {
 					log.Error().Msgf("layerSrc not found for %v", layerID)
 					continue
 				}
-
 				prevSender := jobInfo.sender
-				prLeader.senderLoadCounter[prevSender]--
-				prLeader.senderLoadCounter[node]++
 
-				jobInfo.sender = node
-				jobInfo.status = SendingIndirectly
-				prLeader.jobsMap[layerID][dest] = jobInfo
-
-				return layerID, layerSrc, dest, prevSender, true
+				return layerID, dest, prevSender, true
 			}
 		}
 	}
 
 	log.Debug().Uint("node", uint(node)).Msg("no jobs found")
-	return 0, &LayerSrc{}, 0, 0, false
+	return 0, 0, 0, false
 }
 
 // Receiver
