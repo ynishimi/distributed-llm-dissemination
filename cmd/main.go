@@ -128,7 +128,7 @@ func executeLeader(leader distributor.Leader) time.Duration {
 }
 
 func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor.NodeID, t distributor.Transport, layers distributor.Layers, mode uint) error {
-	fmt.Printf("launching receiver...\n[addr: %s, id: %v, filename: %s]\n", n.GetTransport().GetAddress(), myID, *fileName)
+	fmt.Printf("launching receiver...\n[addr: %s, id: %v, filename: %s, storagePath: %v, mode: %v]\n", n.GetTransport().GetAddress(), myID, *fileName, *storagePath, mode)
 
 	var receiverNode distributor.Receiver
 	switch mode {

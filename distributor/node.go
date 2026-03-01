@@ -756,7 +756,10 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 		sortedLayers = append(sortedLayers, layerID)
 	}
 	slices.SortFunc(sortedLayers, func(a, b LayerID) int {
-		return cmp.Compare(len(layerOwners[a]), len(layerOwners[b]))
+		if len(layerOwners[a]) != len(layerOwners[b]) {
+			return cmp.Compare(len(layerOwners[a]), len(layerOwners[b]))
+		}
+		return cmp.Compare(a, b) // tiebreak by layerID
 	})
 
 	// initialize jobsMap
@@ -795,8 +798,14 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 
 	prLeader.mu.Unlock()
 
+	// sort nodeIDs in ascending order, for deterministic assignment
+	nodeIDs := make([]NodeID, 0, len(a))
 	for node := range a {
-		// assigns a new job to each node
+		nodeIDs = append(nodeIDs, node)
+	}
+	slices.Sort(nodeIDs)
+
+	for _, node := range nodeIDs {
 		err := prLeader.assignNewJob(node)
 		if err != nil {
 			log.Error().Err(err).Msgf("failed to assign a new job to node %v", node)
@@ -886,9 +895,12 @@ func (prLeader *PullRetransmitLeaderNode) getMinLoadedSender(layerID LayerID) No
 	minCount = math.MaxUint
 	for sender, count := range prLeader.senderLoadCounter {
 		layerIDs := prLeader.status[sender]
-		if _, ok := layerIDs[layerID]; ok && count < minCount {
-			minSender = sender
-			minCount = count
+		if _, ok := layerIDs[layerID]; ok {
+			// make the selection deterministic (should be modified if the selection should be randomized)
+			if count < minCount || (count == minCount && sender < minSender) {
+				minSender = sender
+				minCount = count
+			}
 		}
 	}
 
