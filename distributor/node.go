@@ -824,73 +824,47 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 // Otherwise, the leader sends a layer in the job list.
 func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 	prLeader.mu.Lock()
-	nodeStatus := prLeader.status[node]
 
-	// find jobs regarding the layer the node has
-	for layer := range nodeStatus {
-		if layerJobs, ok := prLeader.jobsInfoMap[layer]; ok && len(layerJobs) > 0 {
-			for dest, jobInfo := range layerJobs {
-				// if there is a still a job assigned to it, assign the job.
-				if jobInfo.sender == node && (jobInfo.status == Pending) {
-					log.Debug().Uint("node", uint(node)).Uint("layer", uint(layer)).Msg("pass a new job")
-					jobInfo.status = SendingRetransmit
-					// set timestamp
-					now := time.Now()
-					jobInfo.retransmitTime = &now
-					prLeader.jobsInfoMap[layer][dest] = jobInfo
-					prLeader.senderLoadCounter[node]--
-
-					prLeader.mu.Unlock()
-
-					// assigns the job to the node
-					err := prLeader.sendRetransmit(layer, node, dest)
-					if err != nil {
-						return fmt.Errorf("failed to assign a new job to node %v: %w", node, err)
-					}
-					return nil
-				}
-			}
-		}
+	if layerID, dest, jobInfo, ownJobAvailable := prLeader.getRarestOwnJob(node); ownJobAvailable {
+		log.Debug().Uint("node", uint(node)).Uint("layer", uint(layerID)).Msg("pass a job initially assigned")
+		jobInfo.status = SendingRetransmit
+		// set timestamp
+		now := time.Now()
+		jobInfo.retransmitTime = &now
+		prLeader.jobsInfoMap[layerID][dest] = jobInfo
+		prLeader.senderLoadCounter[node]--
+		prLeader.mu.Unlock()
+		return prLeader.sendRetransmit(layerID, node, dest)
 	}
 
-	prLeader.mu.Unlock()
-
 	// if not, then tries to steal other's job which requires the layers the node has
-	stolenLayerID, dest, stolenSender, ok := prLeader.getFromMostLoaded(node)
-	if !ok {
-		log.Info().Uint("id", uint(node)).Msg("there is no job left to assign")
+	stolenLayerID, dest, stolenSender, stealableJobAvailable := prLeader.getRarestStealableJob(node)
+	if stealableJobAvailable {
+		log.Debug().Uint("layer", uint(stolenLayerID)).Msgf("steal a job from the most loaded node (%v) to node %v", stolenSender, node)
+	} else {
+		prLeader.mu.Unlock()
+		log.Info().Uint("node", uint(node)).Msg("there is no job left to assign")
 		return nil
 	}
 
-	log.Debug().Uint("layer", uint(stolenLayerID)).Msgf("steal a job from the most loaded node (%v) to node %v", stolenSender, node)
-
-	prLeader.mu.Lock()
-
 	prLeader.senderLoadCounter[stolenSender]--
-
 	jobInfo := prLeader.jobsInfoMap[stolenLayerID][dest]
 	jobInfo.sender = node
 	jobInfo.status = SendingRetransmit
 	now := time.Now()
 	jobInfo.retransmitTime = &now
 	prLeader.jobsInfoMap[stolenLayerID][dest] = jobInfo
-
 	prLeader.mu.Unlock()
 
 	// assigns the job to the node
-	err := prLeader.sendRetransmit(stolenLayerID, node, dest)
-	if err != nil {
-		return fmt.Errorf("failed to assign a new job to node %v: %w", node, err)
-	}
-
-	return nil
+	return prLeader.sendRetransmit(stolenLayerID, node, dest)
 }
 
 // getMinLoadedSender returns the sender with minimum jobs that has specified layer ID
 func (prLeader *PullRetransmitLeaderNode) getMinLoadedSender(layerID LayerID) NodeID {
-
 	var minSender NodeID
 	var minCount uint
+
 	minCount = math.MaxUint
 	for sender, count := range prLeader.senderLoadCounter {
 		layerIDs := prLeader.status[sender]
@@ -906,61 +880,96 @@ func (prLeader *PullRetransmitLeaderNode) getMinLoadedSender(layerID LayerID) No
 	return minSender
 }
 
-// getFromMostLoaded returns a job from the most loaded node, if any.
-func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded(node NodeID) (layerID LayerID, dest NodeID, prevSender NodeID, ok bool) {
+// getRarestOwnJob returns the rarest job the node is assigned.
+func (prLeader *PullRetransmitLeaderNode) getRarestOwnJob(node NodeID) (rarestLayerID LayerID, rarestJobDest NodeID, rarestJobInfo jobInfo, ok bool) {
+	minLayerOwnerCount := math.MaxInt
+	ok = false
 
-	// get a job from the node with highest "time to finish (= throughput * number of jobs)".
-	var maxSender NodeID
-	var maxTimeToFinish time.Duration
-	for sender, jobCount := range prLeader.senderLoadCounter {
-		if jobCount == 0 {
+	// get a job initially assigned
+	for layerID := range prLeader.status[node] {
+		layerJobs, exists := prLeader.jobsInfoMap[layerID]
+		if !exists || len(layerJobs) <= 0 {
 			continue
 		}
-
-		_, ok := prLeader.nodePerformance[sender]
-		if !ok {
-			// as the sender is still stuck at its first job, the node should be prioritized over other nodes
-			maxSender = sender
-			maxTimeToFinish = math.MaxInt64
-			break
-		}
-
-		// calculate estimated time to finish
-		timeToFinish := time.Duration(int64(prLeader.nodePerformance[sender].aveThroughput) * int64(jobCount))
-
-		if timeToFinish > maxTimeToFinish {
-			maxSender = sender
-			maxTimeToFinish = timeToFinish
-		}
-	}
-
-	if maxTimeToFinish == 0 {
-		log.Debug().Msg("no pending jobs left")
-		return 0, 0, 0, false
-	}
-
-	log.Debug().Uint("most loaded sender", uint(maxSender)).Str("estimated time to finish", time.Duration(maxTimeToFinish).String()).
-		Send()
-
-	// gets one of jobs from maxSender
-	for layerID := range prLeader.status[node] {
-		for dest, jobInfo := range prLeader.jobsInfoMap[layerID] {
-			if jobInfo.sender == maxSender && jobInfo.status == Pending {
-				// todo: is it needed?
-				_, ok := prLeader.layers[layerID]
-				if !ok {
-					log.Error().Msgf("layerSrc not found for %v", layerID)
-					continue
-				}
-				prevSender := jobInfo.sender
-
-				return layerID, dest, prevSender, true
+		for dest, jobInfo := range layerJobs {
+			// if there is a still a job assigned to it, assign the job.
+			if jobInfo.sender != node || jobInfo.status != Pending {
+				continue
+			}
+			layerOwnerCount := len(prLeader.layerOwners[layerID])
+			if layerOwnerCount < minLayerOwnerCount ||
+				// deterministic selection
+				(layerOwnerCount == minLayerOwnerCount && layerID < rarestLayerID) {
+				minLayerOwnerCount = layerOwnerCount
+				rarestLayerID = layerID
+				rarestJobDest = dest
+				rarestJobInfo = jobInfo
+				exists = true
 			}
 		}
 	}
 
-	log.Debug().Uint("node", uint(node)).Msg("no jobs found")
-	return 0, 0, 0, false
+	return rarestLayerID, rarestJobDest, rarestJobInfo, ok
+}
+
+func (prLeader *PullRetransmitLeaderNode) getRarestStealableJob(node NodeID) (rarestLayerID LayerID, rarestJobDest NodeID, stolenSender NodeID, ok bool) {
+
+	type canditate struct {
+		layerID      LayerID
+		dest         NodeID
+		sender       NodeID
+		ownerCount   int
+		timeToFinish time.Duration
+	}
+
+	var best *canditate
+
+	// var maxTimeToFinish time.Duration
+
+	// // get the list of jobs which the node can act.
+	// jobStealableNodes := make([]NodeID, len(prLeader.assignment))
+
+	for layerID := range prLeader.status[node] {
+		ownerCount := len(prLeader.layerOwners[layerID])
+
+		for dest, job := range prLeader.jobsInfoMap[layerID] {
+			if job.sender == node || job.status != Pending {
+				continue
+			}
+			sender := job.sender
+			if prLeader.senderLoadCounter[sender] == 0 {
+				continue
+			}
+
+			var timeToFinish time.Duration
+
+			if _, ok := prLeader.nodePerformance[sender]; !ok {
+				// as the sender is still stuck at its first job, the node should be prioritized over other nodes
+				timeToFinish = math.MaxInt64
+
+			} else {
+				// calculate estimated time to finish
+				timeToFinish = time.Duration(int64(prLeader.nodePerformance[sender].aveThroughput) * int64(prLeader.senderLoadCounter[sender]))
+			}
+
+			c := &canditate{layerID, dest, sender, ownerCount, timeToFinish}
+
+			// 1st canditate
+			if best == nil ||
+				// canditate with rarer layer
+				c.ownerCount < best.ownerCount ||
+				// canditate with slower node
+				(c.ownerCount == best.ownerCount && c.timeToFinish > best.timeToFinish) {
+				best = c
+			}
+		}
+	}
+
+	if best == nil {
+		return 0, 0, 0, false
+	}
+
+	return best.layerID, best.dest, best.sender, true
 }
 
 // Receiver
