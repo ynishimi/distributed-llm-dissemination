@@ -830,10 +830,9 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 	for layer := range nodeStatus {
 		if layerJobs, ok := prLeader.jobsInfoMap[layer]; ok && len(layerJobs) > 0 {
 			for dest, jobInfo := range layerJobs {
-				log.Debug().Uint("sender", uint(jobInfo.sender)).Send()
 				// if there is a still a job assigned to it, assign the job.
 				if jobInfo.sender == node && (jobInfo.status == Pending) {
-					log.Debug().Msgf("pass a new job to node %v", node)
+					log.Debug().Uint("node", uint(node)).Uint("layer", uint(layer)).Msg("pass a new job")
 					jobInfo.status = SendingRetransmit
 					// set timestamp
 					now := time.Now()
@@ -940,7 +939,8 @@ func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded(node NodeID) (layerI
 		return 0, 0, 0, false
 	}
 
-	log.Debug().Uint("previous sender", uint(maxSender)).Str("time to finish", time.Duration(maxTimeToFinish).String()).Send()
+	log.Debug().Uint("most loaded sender", uint(maxSender)).Str("estimated time to finish", time.Duration(maxTimeToFinish).String()).
+		Send()
 
 	// gets one of jobs from maxSender
 	for layerID := range prLeader.status[node] {

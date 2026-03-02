@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -30,6 +31,7 @@ func main() {
 	myID := distributor.NodeID(*myID)
 	mode := uint(*mode)
 
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 	if *verbose {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	} else {
