@@ -904,7 +904,7 @@ func (prLeader *PullRetransmitLeaderNode) getRarestOwnJob(node NodeID) (rarestLa
 				rarestLayerID = layerID
 				rarestJobDest = dest
 				rarestJobInfo = jobInfo
-				exists = true
+				ok = true
 			}
 		}
 	}
