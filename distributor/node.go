@@ -575,7 +575,7 @@ type senderLoadCounter map[NodeID]uint
 
 // nodePerformance stores the average throughput and the number of completed jobs achieved by the node
 type nodePerformance map[NodeID]struct {
-	aveThroughput       float64
+	aveThroughput       time.Duration
 	completedJobCounter uint
 }
 
@@ -696,15 +696,15 @@ func (prLeader *PullRetransmitLeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	if !ok {
 		// initialization
 		a := struct {
-			aveThroughput       float64
+			aveThroughput       time.Duration
 			completedJobCounter uint
 		}{0, 0}
 		prLeader.nodePerformance[jobInfo.sender] = a
 	}
 
-	curAveThroughput := (float64(throughput) + nodePerformance.aveThroughput) / float64(nodePerformance.completedJobCounter+1)
+	curAveThroughput := time.Duration(int64(throughput+nodePerformance.aveThroughput) / int64(nodePerformance.completedJobCounter+1))
 	prLeader.nodePerformance[jobInfo.sender] = struct {
-		aveThroughput       float64
+		aveThroughput       time.Duration
 		completedJobCounter uint
 	}{curAveThroughput, nodePerformance.completedJobCounter + 1}
 
@@ -909,23 +909,25 @@ func (prLeader *PullRetransmitLeaderNode) getMinLoadedSender(layerID LayerID) No
 
 // getFromMostLoaded returns a job from the most loaded node, if any.
 func (prLeader *PullRetransmitLeaderNode) getFromMostLoaded(node NodeID) (layerID LayerID, dest NodeID, prevSender NodeID, ok bool) {
-	// prLeader.mu.Lock()
-	// defer prLeader.mu.Unlock()
 
 	// get a job from the node with highest "time to finish (= throughput * number of jobs)".
 	var maxSender NodeID
-	var maxTimeToFinish float64
+	var maxTimeToFinish time.Duration
 	for sender, jobCount := range prLeader.senderLoadCounter {
+		if jobCount == 0 {
+			continue
+		}
+
 		_, ok := prLeader.nodePerformance[sender]
 		if !ok {
 			// as the sender is still stuck at its first job, the node should be prioritized over other nodes
 			maxSender = sender
-			maxTimeToFinish = math.MaxFloat64
+			maxTimeToFinish = math.MaxInt64
 			break
 		}
 
 		// calculate estimated time to finish
-		timeToFinish := prLeader.nodePerformance[sender].aveThroughput * float64(jobCount)
+		timeToFinish := time.Duration(int64(prLeader.nodePerformance[sender].aveThroughput) * int64(jobCount))
 
 		if timeToFinish > maxTimeToFinish {
 			maxSender = sender
