@@ -856,10 +856,10 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 
 	prLeader.mu.Unlock()
 
-	// // if not, then tries to steal other's job which requires the layers the node has
+	// if not, then tries to steal other's job which requires the layers the node has
 	stolenLayerID, dest, stolenSender, ok := prLeader.getFromMostLoaded(node)
 	if !ok {
-		log.Info().Uint("id", uint(prLeader.GetMyID())).Msg("there is no job left to assign")
+		log.Info().Uint("id", uint(node)).Msg("there is no job left to assign")
 		return nil
 	}
 
