@@ -3,8 +3,6 @@ package distributor
 import (
 	"encoding/json"
 	"fmt"
-
-	"github.com/rs/zerolog/log"
 )
 
 type Message interface {
@@ -117,25 +115,20 @@ func (m *retransmitMsg) String() string {
 
 // layerMsg
 type layerMsg struct {
-	SrcID     NodeID
-	LayerID   LayerID
-	LayerData *LayerData
+	SrcID    NodeID
+	LayerID  LayerID
+	LayerSrc LayerSrc
 	// SaveDisk stores the flag of if the layer is saved in the disk or not
 	SaveDisk bool
 }
 
 // NewLayerMsg creates a new layerMsg. If the layer is not in memory, it fetches the file from the disk.
-func NewLayerMsg(src NodeID, layerID LayerID, layerSrc *LayerSrc, saveDisk bool) *layerMsg {
-	layerData, err := layerSrc.Read()
-	if err != nil {
-		log.Error().Err(err).Msg("failed to get layer")
-	}
-
+func NewLayerMsg(src NodeID, layerID LayerID, layerSrc LayerSrc, saveDisk bool) *layerMsg {
 	return &layerMsg{
-		SrcID:     src,
-		LayerID:   layerID,
-		LayerData: layerData,
-		SaveDisk:  saveDisk,
+		SrcID:    src,
+		LayerID:  layerID,
+		LayerSrc: layerSrc,
+		SaveDisk: saveDisk,
 	}
 }
 
@@ -148,7 +141,7 @@ func (m *layerMsg) Type() MsgType {
 }
 
 func (m *layerMsg) Payload() []byte {
-	return *m.LayerData
+	return nil
 }
 
 func (m *layerMsg) String() string {

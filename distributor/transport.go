@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 
 	"github.com/rs/zerolog/log"
@@ -41,7 +42,7 @@ type tempLayerInfo struct {
 	SrcID     NodeID
 	LayerID   LayerID
 	LayerSize int
-	SaveDisk  bool
+	// SaveDisk  bool
 }
 
 // AddrRegistory stores the mapping of NodeID and its addr.
@@ -121,7 +122,10 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			// moves the decoder
 			d = json.NewDecoder(conn)
 
-			t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, &data, temp.SaveDisk}
+			layerSrc := LayerSrc{&data, "", len(data), 0}
+
+			// fixme: currently, always loads the layer to disk.
+			t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc, false}
 			continue
 		}
 
@@ -208,7 +212,7 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 
 	if layerMsg, ok := message.(*layerMsg); ok {
 		// sends header and layer separately for avoiding unnecesary memory occupation due to decoding
-		header := tempLayerInfo{layerMsg.SrcID, layerMsg.LayerID, len(*layerMsg.LayerData), layerMsg.SaveDisk}
+		header := tempLayerInfo{layerMsg.SrcID, layerMsg.LayerID, layerMsg.LayerSrc.Size}
 
 		// sends header first
 		marshaledHdr, err := json.Marshal(header)
@@ -230,9 +234,26 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 			return err
 		}
 
-		// sends layerData directly
-		_, err = conn.Write(*layerMsg.LayerData)
-		if err != nil {
+		if inmemData := layerMsg.LayerSrc.InmemData; inmemData != nil {
+			// sends layerData directly
+			_, err = conn.Write(*inmemData)
+			if err != nil {
+				return err
+			}
+		} else {
+			if layerMsg.LayerSrc.Fp == "" {
+				return fmt.Errorf("no data source specified")
+			}
+
+			// the layer is in disk
+			f, err := os.Open(layerMsg.LayerSrc.Fp)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+
+			// directly send file from disk, using sendFile syscall
+			_, err = io.Copy(conn, f)
 			return err
 		}
 

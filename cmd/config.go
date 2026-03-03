@@ -15,7 +15,7 @@ import (
 type config struct {
 	Nodes      []NodeConf
 	Assignment distributor.Assignment
-	LayerSize  uint
+	LayerSize  int
 }
 
 type NodeConf struct {
@@ -62,11 +62,11 @@ func GetsConf(conf *config, node distributor.NodeID) (NodeConf, error) {
 	return NodeConf{}, fmt.Errorf("no leader found")
 }
 
-func CreateLayers(myConf NodeConf, layerSize uint, saveDisk bool) distributor.Layers {
+func CreateLayers(myConf NodeConf, layerSize int, saveDisk bool) distributor.Layers {
 	layers := make(distributor.Layers)
 
 	for layerID := range myConf.InitialLayers {
-		var layerSrc *distributor.LayerSrc
+		var layerSrc distributor.LayerSrc
 		if saveDisk {
 			layerSrc = CreateDiskLayer(myConf.ID, layerID, layerSize, *storagePath)
 		} else {
@@ -78,7 +78,7 @@ func CreateLayers(myConf NodeConf, layerSize uint, saveDisk bool) distributor.La
 	return layers
 }
 
-func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layerSize uint, storagePath string) *distributor.LayerSrc {
+func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layerSize int, storagePath string) distributor.LayerSrc {
 	// save as myID/layerID.layer
 	dir := filepath.Join(storagePath, "layers/", fmt.Sprintf("%d", myID))
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -93,7 +93,7 @@ func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layer
 		}
 	}
 
-	return &distributor.LayerSrc{
+	return distributor.LayerSrc{
 		InmemData: nil,
 		Fp:        path,
 		Size:      layerSize,
@@ -101,10 +101,10 @@ func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layer
 	}
 }
 
-func CreateInmemLayer(layerID distributor.LayerID, layerSize uint) *distributor.LayerSrc {
+func CreateInmemLayer(layerID distributor.LayerID, layerSize int) distributor.LayerSrc {
 	// add dummy data in memory
 	layerData := distributor.LayerData(make([]byte, layerSize))
-	return &distributor.LayerSrc{
+	return distributor.LayerSrc{
 		InmemData: &layerData,
 		Fp:        "",
 		Size:      layerSize,
@@ -152,7 +152,7 @@ func PrintJsonExample() {
 		Nodes:      ncs,
 		Assignment: a,
 		// 2 GiB per layer (65 GiB/32 layers ~ 2)
-		LayerSize: 1 * uint(math.Pow(2, 30)),
+		LayerSize: 1 * int(math.Pow(2, 30)),
 	}
 
 	b, _ := json.Marshal(c)

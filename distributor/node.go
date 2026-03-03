@@ -4,8 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"slices"
 	"sync"
 	"time"
@@ -141,7 +139,7 @@ type NodeIDs map[NodeID]struct{}
 type LayerIDs map[LayerID]struct{}
 
 // map of layers (has data in memory or has a path to the file)
-type Layers map[LayerID]*LayerSrc
+type Layers map[LayerID]LayerSrc
 
 type routingInfo struct {
 	nextHop       NodeID
@@ -162,37 +160,9 @@ type LayerSrc struct {
 	// file path of the layer (in disk)
 	Fp string
 	// file Size
-	Size uint
+	Size int
 	// Offset (not used yet)
 	Offset int64
-}
-
-func (ls *LayerSrc) Read() (*LayerData, error) {
-	if ls.InmemData != nil {
-		// the layer is in memory
-		return ls.InmemData, nil
-	}
-
-	if ls.Fp == "" {
-		return nil, fmt.Errorf("no data source specified")
-	}
-
-	// the layer is in disk
-	f, err := os.Open(ls.Fp)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	buf := make([]byte, ls.Size)
-	_, err = f.ReadAt(buf, ls.Offset)
-	if err != nil {
-		return nil, err
-	}
-
-	layerData := LayerData(buf)
-	return &layerData, nil
-
 }
 
 func (l LayerIDs) String() string {
@@ -327,7 +297,7 @@ func (leader *LeaderNode) sendLayers() {
 	}
 }
 
-func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layerSrc *LayerSrc, saveDisk bool) error {
+func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layerSrc LayerSrc, saveDisk bool) error {
 	log.Debug().Msgf("sending layer %v", layerID)
 	layerMsg := NewLayerMsg(leader.node.GetMyID(), layerID, layerSrc, saveDisk)
 	err := leader.GetTransport().Send(dest, layerMsg)
@@ -1023,49 +993,49 @@ func (receiver *ReceiverNode) handleIncomingMsg() {
 	}()
 }
 
-// handleLayerMsg stores the layer to its storage, and then sends ack to the leader.
+// handleLayerMsg stores the layer to its memory, and then sends ack to the leader.
 func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	receiver.mu.Lock()
 	defer receiver.mu.Unlock()
 
 	var layerSrc LayerSrc
 
-	if layerMsg.SaveDisk {
-		// save the layer to the disk
-		// save as myID/layerID.layer
-		dir := filepath.Join(receiver.storagePath, "layers/", fmt.Sprintf("%d", receiver.GetMyID()))
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			log.Error().Err(err).Msg("failed to create directory")
-		}
-		path := filepath.Join(dir, fmt.Sprintf("%d.layer", layerMsg.LayerID))
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			err = os.WriteFile(path, *layerMsg.LayerData, 0644)
-			if err != nil {
-				log.Error().Err(err).Msg("failed to write file")
-			}
-			log.Debug().Str("storagePath", receiver.storagePath).Msg("saved to storage")
-		}
+	// if layerMsg.SaveDisk {
+	// 	// save the layer to the disk
+	// 	// save as myID/layerID.layer
+	// 	dir := filepath.Join(receiver.storagePath, "layers/", fmt.Sprintf("%d", receiver.GetMyID()))
+	// 	if err := os.MkdirAll(dir, 0755); err != nil {
+	// 		log.Error().Err(err).Msg("failed to create directory")
+	// 	}
+	// 	path := filepath.Join(dir, fmt.Sprintf("%d.layer", layerMsg.LayerID))
+	// 	if _, err := os.Stat(path); os.IsNotExist(err) {
+	// 		err = os.WriteFile(path, *layerMsg.LayerData, 0644)
+	// 		if err != nil {
+	// 			log.Error().Err(err).Msg("failed to write file")
+	// 		}
+	// 		log.Debug().Str("storagePath", receiver.storagePath).Msg("saved to storage")
+	// 	}
 
-		layerSrc = LayerSrc{
-			InmemData: nil,
-			Fp:        path,
-			Size:      uint(len(*layerMsg.LayerData)),
-			Offset:    0,
-		}
-		log.Debug().Msgf("saved a layer %v in %s", layerMsg.LayerID, layerSrc.Fp)
-	} else {
-		// load the layer to its memory
-		layerSrc = LayerSrc{
-			InmemData: layerMsg.LayerData,
-			Fp:        "",
-			Size:      uint(len(*layerMsg.LayerData)),
-			Offset:    0,
-		}
-		log.Debug().Msgf("saved a layer %v in memory", layerMsg.LayerID)
+	// 	layerSrc = LayerSrc{
+	// 		InmemData: nil,
+	// 		Fp:        path,
+	// 		Size:      uint(len(*layerMsg.LayerData)),
+	// 		Offset:    0,
+	// 	}
+	// 	log.Debug().Msgf("saved a layer %v in %s", layerMsg.LayerID, layerSrc.Fp)
+	// } else {
+	// load the layer to its memory
+	layerSrc = LayerSrc{
+		InmemData: layerMsg.LayerSrc.InmemData,
+		Fp:        "",
+		Size:      len(*layerMsg.LayerSrc.InmemData),
+		Offset:    0,
 	}
+	log.Debug().Msgf("saved a layer %v in memory", layerMsg.LayerID)
+	// }
 
 	// store layer
-	receiver.layers[layerMsg.LayerID] = &layerSrc
+	receiver.layers[layerMsg.LayerID] = layerSrc
 
 	// send ack to leader
 	ackMsg := NewAckMsg(receiver.node.GetMyID(), layerMsg.LayerID)
