@@ -122,10 +122,10 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			// moves the decoder
 			d = json.NewDecoder(conn)
 
-			layerSrc := LayerSrc{&data, "", len(data), 0}
+			// fixme: currently, always loads the layer to memory.
+			layerSrc := LayerSrc{&data, "", len(data), 0, InmemLayer}
 
-			// fixme: currently, always loads the layer to disk.
-			t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc, false}
+			t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc}
 			continue
 		}
 
@@ -234,13 +234,13 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 			return err
 		}
 
-		if inmemData := layerMsg.LayerSrc.InmemData; inmemData != nil {
+		if inmemData := layerMsg.LayerSrc.InmemData; inmemData != nil && layerMsg.LayerSrc.LayerLocation == InmemLayer {
 			// sends layerData directly
 			_, err = conn.Write(*inmemData)
 			if err != nil {
 				return err
 			}
-		} else {
+		} else if layerMsg.LayerSrc.LayerLocation == DiskLayer {
 			if layerMsg.LayerSrc.Fp == "" {
 				return fmt.Errorf("no data source specified")
 			}

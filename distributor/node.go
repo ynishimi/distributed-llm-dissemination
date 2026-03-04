@@ -154,6 +154,15 @@ type status map[NodeID]LayerIDs
 // content of LayerData
 type LayerData []byte
 
+// LayerLocation is an enum to identify the location of the layer.
+type LayerLocation uint8
+
+const (
+	InmemLayer LayerLocation = iota
+	DiskLayer
+	ClientLayer
+)
+
 type LayerSrc struct {
 	// InmemData is nil if layer is not in memory
 	InmemData *LayerData
@@ -163,6 +172,8 @@ type LayerSrc struct {
 	Size int
 	// Offset (not used yet)
 	Offset int64
+	// Location of the layer
+	LayerLocation LayerLocation
 }
 
 func (l LayerIDs) String() string {
@@ -195,6 +206,7 @@ type LeaderNode struct {
 	status     status
 	// startDistributionChan notifies the start of distribution.
 	startDistributionChan chan Assignment
+	fetchChan             map[LayerID]chan LayerSrc
 	readyChan             chan Assignment
 	mu                    sync.RWMutex
 }
@@ -206,6 +218,7 @@ func newLeaderNodeBase(node node, layers Layers, assignment Assignment) *LeaderN
 		assignment:            assignment,
 		status:                make(status, len(assignment)),
 		startDistributionChan: make(chan Assignment),
+		fetchChan:             make(map[LayerID]chan LayerSrc),
 		readyChan:             make(chan Assignment),
 	}
 }
@@ -229,6 +242,9 @@ func (leader *LeaderNode) handleIncomingMsg() {
 				go leader.handleAnnounceMsg(v)
 			case *ackMsg:
 				go leader.handleAckMsg(v)
+				// receive layer
+			case *layerMsg:
+				go leader.handleLayerMsg(v)
 			}
 		}
 	}()
@@ -288,20 +304,83 @@ func (leader *LeaderNode) sendLayers() {
 			if !ok {
 				log.Warn().Msgf("no layers found for layerID:%v", layerID)
 			}
-			// always saves to the memory this time
-			err := leader.sendLayer(nodeID, layerID, layer, false)
-			if err != nil {
-				log.Error().Err(err).Msgf("couldn't send a layer %v", layerID)
-			}
+			go func() {
+				// always saves to the memory this time
+				err := leader.sendLayer(nodeID, layerID, layer)
+				if err != nil {
+					log.Error().Err(err).Msgf("couldn't send a layer %v", layerID)
+				}
+			}()
 		}
 	}
 }
 
-func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layerSrc LayerSrc, saveDisk bool) error {
+func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layerSrc LayerSrc) error {
 	log.Debug().Msgf("sending layer %v", layerID)
-	layerMsg := NewLayerMsg(leader.node.GetMyID(), layerID, layerSrc, saveDisk)
-	err := leader.GetTransport().Send(dest, layerMsg)
+	ls := layerSrc
+	if layerSrc.LayerLocation == ClientLayer {
+		log.Debug().Uint("layer", uint(layerID)).Msg("loading layer from client")
+		// load the layer from the client
+		pLs, err := leader.fetchFromClient(layerID)
+		if err != nil {
+			return err
+		}
+		ls = *pLs
+	}
+	err := leader.GetTransport().Send(dest, NewLayerMsg(leader.node.GetMyID(), layerID, ls))
 	return err
+}
+
+func (leader *LeaderNode) fetchFromClient(layerID LayerID) (*LayerSrc, error) {
+	leader.mu.Lock()
+	ch, ok := leader.fetchChan[layerID]
+	if !ok {
+		ch = make(chan LayerSrc)
+		leader.fetchChan[layerID] = ch
+		leader.mu.Unlock()
+
+		err := leader.GetTransport().Send(ClientID, NewClientReqMsg(leader.GetMyID(), layerID, false))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	ls := <-ch
+	leader.mu.Lock()
+	delete(leader.fetchChan, layerID)
+	leader.mu.Unlock()
+
+	return &ls, nil
+}
+
+// handleLayerMsg stores the layer to its memory, and then sends ack to the leader.
+func (leader *LeaderNode) handleLayerMsg(layerMsg *layerMsg) {
+	leader.mu.Lock()
+	defer leader.mu.Unlock()
+
+	var layerSrc LayerSrc
+	// load the layer to its memory
+	layerSrc = LayerSrc{
+		InmemData: layerMsg.LayerSrc.InmemData,
+		Fp:        "",
+		Size:      len(*layerMsg.LayerSrc.InmemData),
+		Offset:    0,
+	}
+	log.Debug().Msgf("saved a layer %v in memory", layerMsg.LayerID)
+
+	// store layer
+	leader.layers[layerMsg.LayerID] = layerSrc
+
+	if ch, ok := leader.fetchChan[layerMsg.LayerID]; ok {
+		ch <- layerSrc
+	}
+
+	// send ack to leader
+	ackMsg := NewAckMsg(leader.node.GetMyID(), layerMsg.LayerID)
+	err := leader.GetTransport().Send(leader.getLeader(), ackMsg)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to send ackMsg")
+	}
 }
 
 // marks the delivery of ackMsg.layer to be done.
@@ -488,7 +567,7 @@ func (rLeader *RetransmitLeaderNode) sendLayers() {
 					log.Warn().Msgf("no layers found for layerID:%v", layerID)
 				}
 				// always saves to the memory this time
-				err := rLeader.sendLayer(nodeID, layerID, layer, false)
+				err := rLeader.sendLayer(nodeID, layerID, layer)
 				if err != nil {
 					log.Error().Err(err).Msgf("couldn't send a layer %v", layerID)
 				}
@@ -507,7 +586,7 @@ func (rLeader *RetransmitLeaderNode) sendRetransmit(layerID LayerID, owner NodeI
 		if !ok {
 			log.Warn().Msgf("no layers found for layerID:%v", layerID)
 		}
-		return rLeader.sendLayer(dest, layerID, layer, false)
+		return rLeader.sendLayer(dest, layerID, layer)
 	}
 	transmitMsg := NewRetransmitMsg(rLeader.node.GetMyID(), layerID, dest)
 	// yet the transmitMsg itself is sent to the owner, not the dest of the layer.
@@ -956,6 +1035,7 @@ type ReceiverNode struct {
 	layers      Layers
 	storagePath string
 	readyChan   chan struct{}
+	fetchChan   map[LayerID]chan LayerSrc
 	mu          sync.RWMutex
 }
 
@@ -964,6 +1044,7 @@ func newReceiverNodeBase(node node, layers Layers, storagePath string) *Receiver
 		node:        node,
 		storagePath: storagePath,
 		readyChan:   make(chan struct{}),
+		fetchChan:   make(map[LayerID]chan LayerSrc),
 		layers:      layers,
 	}
 }
@@ -993,37 +1074,34 @@ func (receiver *ReceiverNode) handleIncomingMsg() {
 	}()
 }
 
+func (receiver *ReceiverNode) fetchFromClient(layerID LayerID) (*LayerSrc, error) {
+	receiver.mu.Lock()
+	ch, ok := receiver.fetchChan[layerID]
+	if !ok {
+		ch = make(chan LayerSrc)
+		receiver.fetchChan[layerID] = ch
+		receiver.mu.Unlock()
+
+		err := receiver.GetTransport().Send(ClientID, NewClientReqMsg(receiver.GetMyID(), layerID, false))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	ls := <-ch
+	receiver.mu.Lock()
+	delete(receiver.fetchChan, layerID)
+	receiver.mu.Unlock()
+
+	return &ls, nil
+}
+
 // handleLayerMsg stores the layer to its memory, and then sends ack to the leader.
 func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	receiver.mu.Lock()
 	defer receiver.mu.Unlock()
 
 	var layerSrc LayerSrc
-
-	// if layerMsg.SaveDisk {
-	// 	// save the layer to the disk
-	// 	// save as myID/layerID.layer
-	// 	dir := filepath.Join(receiver.storagePath, "layers/", fmt.Sprintf("%d", receiver.GetMyID()))
-	// 	if err := os.MkdirAll(dir, 0755); err != nil {
-	// 		log.Error().Err(err).Msg("failed to create directory")
-	// 	}
-	// 	path := filepath.Join(dir, fmt.Sprintf("%d.layer", layerMsg.LayerID))
-	// 	if _, err := os.Stat(path); os.IsNotExist(err) {
-	// 		err = os.WriteFile(path, *layerMsg.LayerData, 0644)
-	// 		if err != nil {
-	// 			log.Error().Err(err).Msg("failed to write file")
-	// 		}
-	// 		log.Debug().Str("storagePath", receiver.storagePath).Msg("saved to storage")
-	// 	}
-
-	// 	layerSrc = LayerSrc{
-	// 		InmemData: nil,
-	// 		Fp:        path,
-	// 		Size:      uint(len(*layerMsg.LayerData)),
-	// 		Offset:    0,
-	// 	}
-	// 	log.Debug().Msgf("saved a layer %v in %s", layerMsg.LayerID, layerSrc.Fp)
-	// } else {
 	// load the layer to its memory
 	layerSrc = LayerSrc{
 		InmemData: layerMsg.LayerSrc.InmemData,
@@ -1032,10 +1110,13 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 		Offset:    0,
 	}
 	log.Debug().Msgf("saved a layer %v in memory", layerMsg.LayerID)
-	// }
 
 	// store layer
 	receiver.layers[layerMsg.LayerID] = layerSrc
+
+	if ch, ok := receiver.fetchChan[layerMsg.LayerID]; ok {
+		ch <- layerSrc
+	}
 
 	// send ack to leader
 	ackMsg := NewAckMsg(receiver.node.GetMyID(), layerMsg.LayerID)
@@ -1098,10 +1179,8 @@ func (rReceiver *RetransmitReceiverNode) handleIncomingMsg() {
 		for incomingMsg := range rReceiver.GetTransport().Deliver() {
 			log.Debug().Msgf("incoming msg[%T]: %s", incomingMsg, incomingMsg)
 			switch v := incomingMsg.(type) {
-			// receive layer
 			case *layerMsg:
 				go rReceiver.handleLayerMsg(v)
-
 			case *retransmitMsg:
 				go rReceiver.handleRetransmitMsg(v)
 			// start the inference engine
@@ -1115,15 +1194,25 @@ func (rReceiver *RetransmitReceiverNode) handleIncomingMsg() {
 // handleRetransmitMsg sends specified layer to the destination.
 func (rReceiver *RetransmitReceiverNode) handleRetransmitMsg(retransmitMsg *retransmitMsg) error {
 	rReceiver.mu.RLock()
-	layer := rReceiver.layers[retransmitMsg.LayerID]
+	ls := rReceiver.layers[retransmitMsg.LayerID]
 	rReceiver.mu.RUnlock()
 
 	// add the destination node to the routing table and connect to it
 	rReceiver.addNode(retransmitMsg.DestID)
 
+	if ls.LayerLocation == ClientLayer {
+		log.Debug().Uint("layer", uint(retransmitMsg.LayerID)).Msg("loading layer from client")
+		// load the layer from the client
+		pLs, err := rReceiver.fetchFromClient(retransmitMsg.LayerID)
+		if err != nil {
+			return err
+		}
+		ls = *pLs
+	}
+
 	// send (retransmit) layer to dest.
 	// the layer should be stored in memory
-	layerMsg := NewLayerMsg(rReceiver.GetMyID(), retransmitMsg.LayerID, layer, false)
+	layerMsg := NewLayerMsg(rReceiver.GetMyID(), retransmitMsg.LayerID, ls)
 	err := rReceiver.GetTransport().Send(retransmitMsg.DestID, layerMsg)
 	if err != nil {
 		log.Error().Err(err).Msgf("failed to send layer to %v", retransmitMsg.DestID)

@@ -119,16 +119,16 @@ type layerMsg struct {
 	LayerID  LayerID
 	LayerSrc LayerSrc
 	// SaveDisk stores the flag of if the layer is saved in the disk or not
-	SaveDisk bool
+	// SaveDisk bool
 }
 
 // NewLayerMsg creates a new layerMsg. If the layer is not in memory, it fetches the file from the disk.
-func NewLayerMsg(src NodeID, layerID LayerID, layerSrc LayerSrc, saveDisk bool) *layerMsg {
+func NewLayerMsg(src NodeID, layerID LayerID, layerSrc LayerSrc) *layerMsg {
 	return &layerMsg{
 		SrcID:    src,
 		LayerID:  layerID,
 		LayerSrc: layerSrc,
-		SaveDisk: saveDisk,
+		// SaveDisk: saveDisk,
 	}
 }
 
@@ -145,7 +145,31 @@ func (m *layerMsg) Payload() []byte {
 }
 
 func (m *layerMsg) String() string {
-	return fmt.Sprintf("from %v: layer %v saveDisk: %v", m.SrcID, m.LayerID, m.SaveDisk)
+	return fmt.Sprintf("from %v: layer %v saveDisk: %v", m.SrcID, m.LayerID, m.LayerSrc.LayerLocation)
+}
+
+// clientReqMsg
+type clientReqMsg struct {
+	SrcID   NodeID
+	LayerID LayerID
+	// DestID   NodeID
+	SaveDisk bool
+}
+
+func NewClientReqMsg(src NodeID, layerID LayerID, SaveDisk bool) *clientReqMsg {
+	return &clientReqMsg{src, layerID, SaveDisk}
+}
+
+func (m *clientReqMsg) Src() string {
+	return fmt.Sprint(m.SrcID)
+}
+
+func (m *clientReqMsg) Type() MsgType {
+	return MsgTypeRetransmit
+}
+
+func (m *clientReqMsg) String() string {
+	return fmt.Sprintf("from %v: layer %v", m.SrcID, m.LayerID)
 }
 
 // startupMsg for start the inference engine on the receiver.
