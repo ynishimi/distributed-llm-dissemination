@@ -375,12 +375,8 @@ func (leader *LeaderNode) handleLayerMsg(layerMsg *layerMsg) {
 		ch <- layerSrc
 	}
 
-	// send ack to leader
-	ackMsg := NewAckMsg(leader.node.GetMyID(), layerMsg.LayerID)
-	err := leader.GetTransport().Send(leader.getLeader(), ackMsg)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to send ackMsg")
-	}
+	// update my status
+	leader.status[leader.GetMyID()][layerMsg.LayerID] = struct{}{}
 }
 
 // marks the delivery of ackMsg.layer to be done.
@@ -566,11 +562,13 @@ func (rLeader *RetransmitLeaderNode) sendLayers() {
 				if !ok {
 					log.Warn().Msgf("no layers found for layerID:%v", layerID)
 				}
-				// always saves to the memory this time
-				err := rLeader.sendLayer(nodeID, layerID, layer)
-				if err != nil {
-					log.Error().Err(err).Msgf("couldn't send a layer %v", layerID)
-				}
+				go func() {
+					// always saves to the memory this time
+					err := rLeader.sendLayer(nodeID, layerID, layer)
+					if err != nil {
+						log.Error().Err(err).Msgf("couldn't send a layer %v", layerID)
+					}
+				}()
 			}
 		}
 	}

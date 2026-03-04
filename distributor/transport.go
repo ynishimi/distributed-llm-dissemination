@@ -1,6 +1,7 @@
 package distributor
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/rs/zerolog/log"
+	"golang.org/x/time/rate"
 )
 
 type Transport interface {
@@ -27,8 +29,8 @@ type TcpTransport struct {
 	ln              net.Listener
 	incomingMsgChan chan Message
 	conns           map[string]*protectedConn
-
-	addrRegistory AddrRegistory
+	limiter         *rate.Limiter
+	addrRegistory   AddrRegistory
 
 	mu sync.RWMutex
 }
@@ -48,12 +50,17 @@ type tempLayerInfo struct {
 // AddrRegistory stores the mapping of NodeID and its addr.
 type AddrRegistory map[NodeID]string
 
-func NewTcpTransport(addr string, bufSize uint, addrRegistory map[NodeID]string) (*TcpTransport, error) {
+func NewTcpTransport(addr string, bufSize uint, addrRegistory AddrRegistory, limitRate int) (*TcpTransport, error) {
 	t := &TcpTransport{
 		addr:            addr,
 		incomingMsgChan: make(chan Message, bufSize),
 		conns:           make(map[string]*protectedConn),
+		limiter:         nil,
 		addrRegistory:   addrRegistory,
+	}
+
+	if limitRate != 0 {
+		t.limiter = rate.NewLimiter(rate.Limit(limitRate), limitRate)
 	}
 
 	// start listening
@@ -236,9 +243,23 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 
 		if inmemData := layerMsg.LayerSrc.InmemData; inmemData != nil && layerMsg.LayerSrc.LayerLocation == InmemLayer {
 			// sends layerData directly
-			_, err = conn.Write(*inmemData)
-			if err != nil {
-				return err
+			if t.limiter != nil {
+				// limit speed
+				data := *inmemData
+				for len(data) > 0 {
+					n := min(len(data), t.limiter.Burst())
+					t.limiter.WaitN(context.Background(), n)
+					_, err = conn.Write(data[:n])
+					if err != nil {
+						return err
+					}
+					data = data[n:]
+				}
+			} else {
+				_, err = conn.Write(*inmemData)
+				if err != nil {
+					return err
+				}
 			}
 		} else if layerMsg.LayerSrc.LayerLocation == DiskLayer {
 			if layerMsg.LayerSrc.Fp == "" {
@@ -412,3 +433,17 @@ func (t *InmemoryTransport) Close() error {
 	close(t.incomingMsgChan)
 	return nil
 }
+
+// // transport with rate limiter
+// type RateLimitedTransport struct {
+// 	t       Transport
+// 	limiter *rate.Limiter
+// }
+
+// func NewRateLimitedTransport(t Transport, bytePerSecond int) *RateLimitedTransport {
+// 	return &RateLimitedTransport{t, rate.NewLimiter(rate.Limit(bytePerSecond), bytePerSecond)}
+// }
+
+// func (t *RateLimitedTransport) Send(destID NodeID, message Message) error {
+
+// }

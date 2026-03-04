@@ -76,7 +76,7 @@ func main() {
 	}
 
 	// create transport
-	t, err := distributor.NewTcpTransport(myConf.Addr, numPeers, addrRegistry)
+	t, err := distributor.NewTcpTransport(myConf.Addr, numPeers, addrRegistry, 0)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to create transport")
 		return
