@@ -17,6 +17,7 @@ var fileName = flag.String("f", "", "filename of topology JSON file")
 var storagePath = flag.String("s", "", "path of storing layers")
 var mode = flag.Int("m", -1, "0: naive, 1: layer retransmit")
 var layerSetup = flag.Bool("l", false, "create layer files and exit")
+var client = flag.Bool("c", false, "if the process is client")
 var verbose = flag.Bool("v", false, "output debug messages")
 
 func main() {
@@ -38,31 +39,59 @@ func main() {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}
 
-	var saveDisk = true
-	if *storagePath == "" {
-		saveDisk = false
-	}
-
 	// read JSON files
 	conf, err := ReadJson(*fileName)
 	if err != nil {
 		return
 	}
-	myConf, err := GetsConf(conf, distributor.NodeID(myID))
+
+	leaderNodeConf, err := GetLeaderConf(conf)
+	if err != nil {
+		log.Error().Err(err).Msg("leader not found in config")
+		return
+	}
+
+	myNodeConf, err := GetNodeConf(conf, distributor.NodeID(myID))
 	if err != nil {
 		log.Error().Err(err).Msg("node not found in config")
 		return
 	}
 
-	leaderConf, err := GetsLeaderConf(conf)
-	if err != nil {
-		log.Error().Err(err).Msg("leader not found in config")
-		return
+	if *client {
+		myClientConf, err := GetClientConf(conf, distributor.NodeID(myID))
+		if err != nil {
+			log.Error().Err(err).Msg("node not found in config")
+			return
+		}
+
+		// creates registory (only the node to which the client connects)
+		addrRegistry := make(distributor.AddrRegistory, 1)
+		if myClientConf.ID != myNodeConf.ID {
+			log.Error().Err(err).Msg("weird node")
+			return
+		}
+		addrRegistry[myClientConf.ID] = myNodeConf.Addr
+
+		// create transport
+		t, err := distributor.NewTcpTransport(myClientConf.Addr, 1, addrRegistry, myClientConf.LimitRate)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to create transport")
+			return
+		}
+
+		layers := CreateLayers(myNodeConf, conf.LayerSize, false)
+		RunClinet(myClientConf.ID, t, layers)
 	}
+
+	var saveDisk = true
+	if *storagePath == "" {
+		saveDisk = false
+	}
+
 	numPeers := uint(len(conf.Nodes))
 
 	// // load (dummy) layers
-	layers := CreateLayers(myConf, conf.LayerSize, saveDisk)
+	layers := CreateLayers(myNodeConf, conf.LayerSize, saveDisk)
 
 	if *layerSetup {
 		log.Info().Msg("layer set up")
@@ -76,20 +105,20 @@ func main() {
 	}
 
 	// create transport
-	t, err := distributor.NewTcpTransport(myConf.Addr, numPeers, addrRegistry, 0)
+	t, err := distributor.NewTcpTransport(myNodeConf.Addr, numPeers, addrRegistry, 0)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to create transport")
 		return
 	}
-	n := distributor.NewNode(myID, leaderConf.ID, t)
+	n := distributor.NewNode(myID, leaderNodeConf.ID, t)
 
-	if myConf.IsLeader {
+	if myNodeConf.IsLeader {
 		err = RunLeader(myID, n, t, layers, conf.Assignment, mode)
 		if err != nil {
 			log.Error().Err(err).Msg("leader failed")
 		}
 	} else {
-		err = RunReceiver(myID, n, leaderConf.ID, t, layers, mode)
+		err = RunReceiver(myID, n, leaderNodeConf.ID, t, layers, mode)
 		if err != nil {
 			log.Error().Err(err).Msg("receiver failed")
 		}
@@ -160,4 +189,9 @@ func executeReceiver(receiver distributor.Receiver) error {
 
 	<-receiver.Ready()
 	return nil
+}
+
+func RunClinet(nodeID distributor.NodeID, t distributor.Transport, layers distributor.Layers) {
+	_ = distributor.NewClient(nodeID, t, layers)
+	select {}
 }

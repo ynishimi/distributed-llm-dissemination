@@ -14,6 +14,7 @@ import (
 
 type config struct {
 	Nodes      []NodeConf
+	Clients    []ClientConf
 	Assignment distributor.Assignment
 	LayerSize  int
 }
@@ -23,6 +24,12 @@ type NodeConf struct {
 	Addr          string
 	IsLeader      bool
 	InitialLayers distributor.LayerIDs
+}
+type ClientConf struct {
+	ID        distributor.NodeID
+	Addr      string
+	Layers    distributor.LayerIDs
+	LimitRate int
 }
 
 // ReadJson reads Json file and returns config struct.
@@ -42,7 +49,7 @@ func ReadJson(fileName string) (*config, error) {
 	return &conf, nil
 }
 
-func GetsLeaderConf(conf *config) (NodeConf, error) {
+func GetLeaderConf(conf *config) (NodeConf, error) {
 	// gets leader ID
 	for _, nodeconf := range conf.Nodes {
 		if nodeconf.IsLeader {
@@ -52,7 +59,7 @@ func GetsLeaderConf(conf *config) (NodeConf, error) {
 	return NodeConf{}, fmt.Errorf("no leader found ")
 }
 
-func GetsConf(conf *config, node distributor.NodeID) (NodeConf, error) {
+func GetNodeConf(conf *config, node distributor.NodeID) (NodeConf, error) {
 	// gets leader ID
 	for _, nodeconf := range conf.Nodes {
 		if nodeconf.ID == node {
@@ -60,6 +67,16 @@ func GetsConf(conf *config, node distributor.NodeID) (NodeConf, error) {
 		}
 	}
 	return NodeConf{}, fmt.Errorf("no leader found")
+}
+
+func GetClientConf(conf *config, node distributor.NodeID) (ClientConf, error) {
+	// gets leader ID
+	for _, clientConf := range conf.Clients {
+		if clientConf.ID == node {
+			return clientConf, nil
+		}
+	}
+	return ClientConf{}, fmt.Errorf("no leader found")
 }
 
 func CreateLayers(myConf NodeConf, layerSize int, saveDisk bool) distributor.Layers {

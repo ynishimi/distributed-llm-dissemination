@@ -18,7 +18,7 @@ type Client struct {
 }
 
 // NewClient creates a client.
-func NewClientBase(nodeID NodeID, t Transport, layers Layers) *Client {
+func NewClient(nodeID NodeID, t Transport, layers Layers) *Client {
 	c := &Client{
 		nodeID: nodeID,
 		t:      t,
