@@ -15,7 +15,6 @@ import (
 )
 
 type Transport interface {
-	Connect(addrID NodeID) error
 	Send(destID NodeID, message Message) error
 	Broadcast(message Message) error
 	Deliver() <-chan Message
@@ -149,42 +148,35 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 	}
 }
 
-// Connect tries to connect to the node which has the address using Dial.
-func (t *TcpTransport) Connect(addrID NodeID) error {
-
+// getOrConnect tries to connect to the node which has the address using Dial, if there is no connection.
+func (t *TcpTransport) getOrConnect(destAddr string) (*protectedConn, error) {
 	t.mu.RLock()
-	addr, ok := t.addrRegistry[addrID]
-	myAddr := t.addr
-	t.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("addr of %d does not exist", addrID)
-	}
-
-	t.mu.RLock()
-	curConn := t.conns[addr]
+	curPConn, ok := t.conns[destAddr]
 	t.mu.RUnlock()
 
-	if curConn != nil {
-		log.Debug().Str("addr", addr).Msg("conn already established")
-		return nil
+	if ok && curPConn != nil {
+		log.Debug().Str("addr", destAddr).Msg("conn already established")
+		return curPConn, nil
 	}
 
-	if addr == myAddr {
+	if destAddr == t.addr {
 		log.Debug().Msg("skip dialing to myself")
-		return nil
+		return nil, nil
 	}
 
-	conn, err := net.Dial("tcp", addr)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	newConn, err := net.Dial("tcp", destAddr)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	//  save conn
-	t.mu.Lock()
-	t.conns[addr] = &protectedConn{conn: conn}
-	t.mu.Unlock()
+	newPConn := &protectedConn{conn: newConn}
+	t.conns[destAddr] = newPConn
 
-	return nil
+	return newPConn, nil
 }
 
 func (t *TcpTransport) Send(destID NodeID, message Message) error {
@@ -196,24 +188,31 @@ func (t *TcpTransport) Send(destID NodeID, message Message) error {
 		return fmt.Errorf("addr of %d does not exist", destID)
 	}
 
-	t.mu.RLock()
-	conn, ok := t.conns[dest]
-	t.mu.RUnlock()
+	conn, err := t.getOrConnect(dest)
+	if err != nil {
+		return fmt.Errorf("failed to connect to %v: %w", dest, err)
+	}
 
-	if !ok {
-		return fmt.Errorf("conn not found for addr %v", dest)
+	if conn == nil {
+		// it's myself
+		t.incomingMsgChan <- message
+		return nil
 	}
 
 	return t.sendTransportMsg(conn, message)
 }
 func (t *TcpTransport) Broadcast(message Message) error {
 	t.mu.RLock()
-	conns := t.conns
+	ids := make([]NodeID, 0, len(t.addrRegistry))
+	for id := range t.addrRegistry {
+		ids = append(ids, id)
+	}
 	t.mu.RUnlock()
-	for addr, conn := range conns {
-		err := t.sendTransportMsg(conn, message)
+
+	for _, id := range ids {
+		err := t.Send(id, message)
 		if err != nil {
-			return fmt.Errorf("failed to send msg to addr %v", addr)
+			log.Error().Err(err).Msgf("failed to broadcast to %v", id)
 		}
 	}
 
@@ -254,6 +253,7 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 			// sends layerData directly
 			if t.limiter != nil {
 				// limit speed
+				log.Debug().Uint("layerID", uint(layerMsg.LayerID)).Msg("sending with limit")
 				data := *inmemData
 				for len(data) > 0 {
 					n := min(len(data), t.limiter.Burst())
@@ -372,26 +372,6 @@ func NewInmemTransport(addr string, bufSize uint) *InmemoryTransport {
 	return t
 }
 
-// Connect etablishes the connection.
-func (t *InmemoryTransport) Connect(addrID NodeID) error {
-	// search the instance of the addr using the global registry
-	addr := fmt.Sprint(addrID)
-	inmemRegistryMu.Lock()
-	peer, ok := inmemRegistry[addr]
-	inmemRegistryMu.Unlock()
-
-	if !ok {
-		return fmt.Errorf("peer %s not found", addr)
-	}
-
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	t.peers[addr] = peer
-
-	return nil
-}
-
 func (t *InmemoryTransport) AddPeer(newPeer *InmemoryTransport) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -407,7 +387,19 @@ func (t *InmemoryTransport) Send(destID NodeID, message Message) error {
 	t.mu.RUnlock()
 
 	if !ok {
-		return fmt.Errorf("peer not found")
+		// try to find from global registry
+		inmemRegistryMu.Lock()
+		peer, ok := inmemRegistry[dest]
+		inmemRegistryMu.Unlock()
+
+		if !ok {
+			return fmt.Errorf("peer %s not found", dest)
+		}
+
+		t.mu.Lock()
+		t.peers[dest] = peer
+		destTransport = peer
+		t.mu.Unlock()
 	}
 
 	destTransport.incomingMsgChan <- message
@@ -415,15 +407,30 @@ func (t *InmemoryTransport) Send(destID NodeID, message Message) error {
 }
 
 func (t *InmemoryTransport) Broadcast(message Message) error {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	inmemRegistryMu.Lock()
+	addrs := make([]string, 0, len(inmemRegistry))
+	for addr := range inmemRegistry {
+		addrs = append(addrs, addr)
+	}
+	inmemRegistryMu.Unlock()
 
-	// assumption: all nodes are in the map
-	for addr, destTransport := range t.peers {
+	for _, addr := range addrs {
 		if addr == t.addr {
 			continue
 		}
-		destTransport.incomingMsgChan <- message
+		var id uint
+		_, err := fmt.Sscanf(addr, "%d", &id)
+		if err != nil {
+			// fallback if it's not a number
+			t.mu.RLock()
+			peer, ok := t.peers[addr]
+			t.mu.RUnlock()
+			if ok {
+				peer.incomingMsgChan <- message
+			}
+			continue
+		}
+		t.Send(NodeID(id), message)
 	}
 
 	return nil
@@ -439,6 +446,9 @@ func (t *InmemoryTransport) GetAddress() string {
 }
 
 func (t *InmemoryTransport) Close() error {
+	inmemRegistryMu.Lock()
+	delete(inmemRegistry, t.addr)
+	inmemRegistryMu.Unlock()
 	close(t.incomingMsgChan)
 	return nil
 }

@@ -22,10 +22,6 @@ func TestTransportSendSingle(t *testing.T) {
 		p1, p2 distributor.Transport) {
 		t.Helper()
 
-		if err := p1.Connect(peer2ID); err != nil {
-			t.Fatal(err)
-		}
-
 		p1.Send(peer2ID, distributor.NewSimpleMsg(p1.GetAddress(), "hi from peer1"))
 
 		select {
@@ -75,9 +71,9 @@ func TestInmemoryTransportSendThree(t *testing.T) {
 
 		msgs := make([]distributor.Message, 0)
 
-		if err := p1.Connect(peer2ID); err != nil {
-			t.Fatal(err)
-		}
+		// if err := p1.Connect(peer2ID); err != nil {
+		// 	t.Fatal(err)
+		// }
 
 		go func() {
 			for msg := range p2.Deliver() {
@@ -138,9 +134,9 @@ func TestInmemoryTransportBroadcastSingle(t *testing.T) {
 	broadcastSingle := func(t *testing.T, p1, p2 distributor.Transport) {
 		t.Helper()
 
-		if err := p1.Connect(peer2ID); err != nil {
-			t.Fatal(err)
-		}
+		// if err := p1.Connect(peer2ID); err != nil {
+		// 	t.Fatal(err)
+		// }
 
 		p1.Broadcast(distributor.NewSimpleMsg(p1.GetAddress(), "broadcast value"))
 

@@ -118,14 +118,6 @@ func main() {
 		return
 	}
 
-	// connect to the client
-	if myClientConf != nil {
-		if err := t.Connect(distributor.ClientID); err != nil {
-			log.Error().Err(err).Msg("failed to connect to client")
-			return
-		}
-	}
-
 	n := distributor.NewNode(myID, leaderNodeConf.ID, t)
 
 	if myNodeConf.IsLeader {

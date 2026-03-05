@@ -91,12 +91,6 @@ func (n *N) getNextHop(goalID NodeID) (NodeID, error) {
 func (n *N) addNode(goal NodeID) {
 	// add it to routing table
 	n.addRoutingTable(goal, goal, 1)
-
-	// tell it to the transport layer
-	log.Debug().Msgf("%v: connecting to %v", n.myID, goal)
-	if err := n.GetTransport().Connect(goal); err != nil {
-		log.Debug().Err(err).Msgf("failed to connect to %v", goal)
-	}
 }
 
 // adds node that is not directly connected to itself
@@ -480,6 +474,8 @@ func (rLeader *RetransmitLeaderNode) handleIncomingMsg() {
 				go rLeader.handleAnnounceMsg(v)
 			case *ackMsg:
 				go rLeader.handleAckMsg(v)
+			case *layerMsg:
+				go rLeader.handleLayerMsg(v)
 			}
 		}
 	}()
@@ -667,6 +663,8 @@ func (prLeader *PullRetransmitLeaderNode) handleIncomingMsg() {
 				go prLeader.handleAnnounceMsg(v)
 			case *ackMsg:
 				go prLeader.handleAckMsg(v)
+			case *layerMsg:
+				go prLeader.handleLayerMsg(v)
 			}
 		}
 	}()
