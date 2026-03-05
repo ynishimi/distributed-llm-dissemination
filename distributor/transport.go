@@ -161,7 +161,7 @@ func (t *TcpTransport) getOrConnect(destAddr string) (*protectedConn, error) {
 	}
 
 	if destAddr == t.addr {
-		log.Debug().Msg("skip dialing to myself")
+		// log.Debug().Msg("skip dialing to myself")
 		return nil, nil
 	}
 

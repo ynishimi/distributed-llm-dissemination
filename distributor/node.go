@@ -372,7 +372,7 @@ func (leader *LeaderNode) handleLayerMsg(layerMsg *layerMsg) {
 		Offset:        0,
 		LayerLocation: InmemLayer,
 	}
-	log.Debug().Msgf("saved a layer %v in memory", layerMsg.LayerID)
+	log.Debug().Msgf("saved layer %v in memory", layerMsg.LayerID)
 
 	// store layer
 	leader.layers[layerMsg.LayerID] = layerSrc
@@ -382,7 +382,12 @@ func (leader *LeaderNode) handleLayerMsg(layerMsg *layerMsg) {
 	}
 
 	// update my status
-	leader.status[leader.GetMyID()][layerMsg.LayerID] = layerSrc.LayerLocation
+	// send ack to leader
+	ackMsg := NewAckMsg(leader.node.GetMyID(), layerMsg.LayerID, layerSrc.LayerLocation)
+	err := leader.GetTransport().Send(leader.getLeader(), ackMsg)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to send ackMsg")
+	}
 }
 
 // marks the delivery of ackMsg.layer to be done.
@@ -737,9 +742,9 @@ func (prLeader *PullRetransmitLeaderNode) handleAckMsg(ackMsg *ackMsg) {
 
 	// delete a job and assign a new job (if applicable)
 	jobInfo, ok := prLeader.jobsInfoMap[ackMsg.LayerID][ackMsg.SrcID]
-
 	if !ok {
-		log.Error().Uint("node", uint(jobInfo.sender)).Uint("layerID", uint(ackMsg.LayerID)).Msg("unknown job")
+		// if the ack is for the layer loaded from the client, ignore it.
+		// log.Error().Uint("node", uint(jobInfo.sender)).Uint("layerID", uint(ackMsg.LayerID)).Msg("unknown job")
 		return
 	}
 
@@ -1123,7 +1128,7 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 		Offset:        0,
 		LayerLocation: InmemLayer,
 	}
-	log.Debug().Msgf("saved a layer %v in memory", layerMsg.LayerID)
+	log.Debug().Msgf("saved layer %v in memory", layerMsg.LayerID)
 
 	// store layer
 	receiver.layers[layerMsg.LayerID] = layerSrc
