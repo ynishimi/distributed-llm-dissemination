@@ -66,17 +66,17 @@ func GetNodeConf(conf *config, node distributor.NodeID) (NodeConf, error) {
 			return nodeconf, nil
 		}
 	}
-	return NodeConf{}, fmt.Errorf("no leader found")
+	return NodeConf{}, fmt.Errorf("no node found")
 }
 
-func GetClientConf(conf *config, node distributor.NodeID) (ClientConf, error) {
+func GetClientConf(conf *config, node distributor.NodeID) (*ClientConf, error) {
 	// gets leader ID
 	for _, clientConf := range conf.Clients {
 		if clientConf.ID == node {
-			return clientConf, nil
+			return &clientConf, nil
 		}
 	}
-	return ClientConf{}, fmt.Errorf("no leader found")
+	return nil, fmt.Errorf("no client found")
 }
 
 func CreateLayers(myConf NodeConf, layerSize int, saveDisk bool) distributor.Layers {
@@ -88,6 +88,21 @@ func CreateLayers(myConf NodeConf, layerSize int, saveDisk bool) distributor.Lay
 			layerSrc = CreateDiskLayer(myConf.ID, layerID, layerSize, *storagePath)
 		} else {
 			layerSrc = CreateInmemLayer(layerID, layerSize)
+		}
+		layers[layerID] = layerSrc
+	}
+
+	return layers
+}
+
+func AddClientLayers(clientConf *ClientConf, layerSize int, layers distributor.Layers) distributor.Layers {
+	for layerID := range clientConf.Layers {
+		layerSrc := distributor.LayerSrc{
+			InmemData:     nil,
+			Fp:            "",
+			Size:          layerSize,
+			Offset:        0,
+			LayerLocation: distributor.ClientLayer,
 		}
 		layers[layerID] = layerSrc
 	}
@@ -111,10 +126,11 @@ func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layer
 	}
 
 	return distributor.LayerSrc{
-		InmemData: nil,
-		Fp:        path,
-		Size:      layerSize,
-		Offset:    0,
+		InmemData:     nil,
+		Fp:            path,
+		Size:          layerSize,
+		Offset:        0,
+		LayerLocation: distributor.DiskLayer,
 	}
 }
 
@@ -122,10 +138,11 @@ func CreateInmemLayer(layerID distributor.LayerID, layerSize int) distributor.La
 	// add dummy data in memory
 	layerData := distributor.LayerData(make([]byte, layerSize))
 	return distributor.LayerSrc{
-		InmemData: &layerData,
-		Fp:        "",
-		Size:      layerSize,
-		Offset:    0,
+		InmemData:     &layerData,
+		Fp:            "",
+		Size:          layerSize,
+		Offset:        0,
+		LayerLocation: distributor.InmemLayer,
 	}
 }
 

@@ -57,20 +57,19 @@ func main() {
 		return
 	}
 
-	if *client {
-		myClientConf, err := GetClientConf(conf, distributor.NodeID(myID))
-		if err != nil {
-			log.Error().Err(err).Msg("node not found in config")
-			return
-		}
+	myClientConf, err := GetClientConf(conf, distributor.NodeID(myID))
+	if err != nil {
+		log.Warn().Err(err).Msg("node not found in config")
+	}
 
+	if *client {
 		// creates registory (only the node to which the client connects)
 		addrRegistry := make(distributor.AddrRegistory, 1)
 		if myClientConf.ID != myNodeConf.ID {
 			log.Error().Err(err).Msg("weird node")
 			return
 		}
-		addrRegistry[myClientConf.ID] = myNodeConf.Addr
+		addrRegistry[myClientConf.ID] = myClientConf.Addr
 
 		// create transport
 		t, err := distributor.NewTcpTransport(myClientConf.Addr, 1, addrRegistry, myClientConf.LimitRate)
@@ -80,7 +79,7 @@ func main() {
 		}
 
 		layers := CreateLayers(myNodeConf, conf.LayerSize, false)
-		RunClinet(myClientConf.ID, t, layers)
+		RunClient(myClientConf.ID, t, layers)
 	}
 
 	var saveDisk = true
@@ -90,8 +89,13 @@ func main() {
 
 	numPeers := uint(len(conf.Nodes))
 
-	// // load (dummy) layers
+	// load (dummy) layers
 	layers := CreateLayers(myNodeConf, conf.LayerSize, saveDisk)
+
+	// If there is a client connecte to the node, add layers of it
+	if myClientConf != nil {
+		layers = AddClientLayers(myClientConf, conf.LayerSize, layers)
+	}
 
 	if *layerSetup {
 		log.Info().Msg("layer set up")
@@ -191,7 +195,7 @@ func executeReceiver(receiver distributor.Receiver) error {
 	return nil
 }
 
-func RunClinet(nodeID distributor.NodeID, t distributor.Transport, layers distributor.Layers) {
+func RunClient(nodeID distributor.NodeID, t distributor.Transport, layers distributor.Layers) {
 	_ = distributor.NewClient(nodeID, t, layers)
 	select {}
 }
