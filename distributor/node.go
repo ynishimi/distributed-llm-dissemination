@@ -807,7 +807,9 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 		for layerID := range layerIDs {
 			owners, ok := prLeader.layerOwners[layerID]
 			if !ok {
-				log.Error().Msgf("layerOwners is not initialized for the key %v", layerID)
+				// log.Error().Msgf("layerOwners is not initialized for the key %v", layerID)
+				owners = make(NodeIDs)
+				prLeader.layerOwners[layerID] = owners
 			}
 			owners[nodeID] = struct{}{}
 			prLeader.layerOwners[layerID] = owners
@@ -871,16 +873,12 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 	slices.Sort(nodeIDs)
 
 	for _, node := range nodeIDs {
-		err := prLeader.assignNewJob(node)
-		if err != nil {
-			log.Error().Err(err).Msgf("failed to assign a new job to node %v", node)
-		}
-	}
-
-	// the leader is assigned a job
-	err := prLeader.assignNewJob(prLeader.GetMyID())
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to assign a new job to node %v", prLeader.GetMyID())
+		go func() {
+			err := prLeader.assignNewJob(node)
+			if err != nil {
+				log.Error().Err(err).Msgf("failed to assign a new job to node %v", node)
+			}
+		}()
 	}
 }
 
