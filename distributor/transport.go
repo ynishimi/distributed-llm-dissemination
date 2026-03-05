@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"sync"
@@ -253,7 +254,7 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 			// sends layerData directly
 			if t.limiter != nil {
 				// limit speed
-				log.Debug().Uint("layerID", uint(layerMsg.LayerID)).Msg("sending with limit")
+				log.Debug().Uint("layerID", uint(layerMsg.LayerID)).Msgf("sending with limit: %f MiB/s", float64(t.limiter.Limit())/math.Pow(2, 20))
 				data := *inmemData
 				for len(data) > 0 {
 					n := min(len(data), t.limiter.Burst())

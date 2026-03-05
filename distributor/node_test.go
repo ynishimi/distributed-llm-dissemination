@@ -95,7 +95,7 @@ func createSimpleAssignment(NumReceivers, LeaderNodeID int) *distributor.Assignm
 	for i := range NumReceivers {
 		layerIDs := make(distributor.LayerIDs)
 
-		layerIDs[distributor.LayerID(i+LeaderNodeID+1)] = struct{}{}
+		layerIDs[distributor.LayerID(i+LeaderNodeID+1)] = distributor.InmemLayer
 		assignment[distributor.NodeID(i+LeaderNodeID+1)] = layerIDs
 	}
 	return &assignment

@@ -156,13 +156,13 @@ func PrintJsonExample() {
 	ncs[3] = NodeConf{3, ":8083", false, make(distributor.LayerIDs)}
 
 	// leader should have all the layers
-	ncs[0].InitialLayers[1] = struct{}{}
+	ncs[0].InitialLayers[1] = distributor.InmemLayer
 	// ncs[0].InitialLayers[2] = struct{}{}
-	ncs[0].InitialLayers[3] = struct{}{}
+	ncs[0].InitialLayers[3] = distributor.InmemLayer
 
-	ncs[1].InitialLayers[1] = struct{}{}
+	ncs[1].InitialLayers[1] = distributor.InmemLayer
 	// ncs[2].InitialLayers[2] = struct{}{}
-	ncs[3].InitialLayers[3] = struct{}{}
+	ncs[3].InitialLayers[3] = distributor.InmemLayer
 
 	a := make(distributor.Assignment)
 
@@ -174,13 +174,13 @@ func PrintJsonExample() {
 	// a[0][2] = struct{}{}
 	// a[0][3] = struct{}{}
 
-	a[1][1] = struct{}{}
+	a[1][1] = distributor.InmemLayer
 
-	a[2][1] = struct{}{}
+	a[2][1] = distributor.InmemLayer
 	// a[2][2] = struct{}{}
-	a[2][3] = struct{}{}
+	a[2][3] = distributor.InmemLayer
 
-	a[3][3] = struct{}{}
+	a[3][3] = distributor.InmemLayer
 
 	c := config{
 		Nodes:      ncs,

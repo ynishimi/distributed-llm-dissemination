@@ -130,7 +130,7 @@ type LayerID uint
 type NodeIDs map[NodeID]struct{}
 
 // set of LayerIDs
-type LayerIDs map[LayerID]struct{}
+type LayerIDs map[LayerID]LayerLocation
 
 // map of layers (has data in memory or has a path to the file)
 type Layers map[LayerID]LayerSrc
@@ -218,8 +218,8 @@ func newLeaderNodeBase(node node, layers Layers, assignment Assignment) *LeaderN
 
 	// only send keys of the map
 	curLayerIDs := make(LayerIDs, len(l.layers))
-	for k := range l.layers {
-		curLayerIDs[k] = struct{}{}
+	for k, layerSrc := range l.layers {
+		curLayerIDs[k] = layerSrc.LayerLocation
 	}
 
 	l.status[l.GetMyID()] = curLayerIDs
@@ -299,8 +299,8 @@ func (leader *LeaderNode) sendLayers() {
 
 	for nodeID, layerIDs := range a {
 		for layerID := range layerIDs {
-			// skip the layer which is already obtained by the node
-			if _, ok := s[nodeID][layerID]; ok {
+			// skip the layer which is already stored in memory by the node
+			if location, ok := s[nodeID][layerID]; ok && location == InmemLayer {
 				continue
 			}
 
@@ -366,10 +366,11 @@ func (leader *LeaderNode) handleLayerMsg(layerMsg *layerMsg) {
 	var layerSrc LayerSrc
 	// load the layer to its memory
 	layerSrc = LayerSrc{
-		InmemData: layerMsg.LayerSrc.InmemData,
-		Fp:        "",
-		Size:      len(*layerMsg.LayerSrc.InmemData),
-		Offset:    0,
+		InmemData:     layerMsg.LayerSrc.InmemData,
+		Fp:            "",
+		Size:          len(*layerMsg.LayerSrc.InmemData),
+		Offset:        0,
+		LayerLocation: InmemLayer,
 	}
 	log.Debug().Msgf("saved a layer %v in memory", layerMsg.LayerID)
 
@@ -381,7 +382,7 @@ func (leader *LeaderNode) handleLayerMsg(layerMsg *layerMsg) {
 	}
 
 	// update my status
-	leader.status[leader.GetMyID()][layerMsg.LayerID] = struct{}{}
+	leader.status[leader.GetMyID()][layerMsg.LayerID] = layerSrc.LayerLocation
 }
 
 // marks the delivery of ackMsg.layer to be done.
@@ -390,7 +391,7 @@ func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 
 	curStatus := leader.status[ackMsg.SrcID]
 	// add the layer to current status
-	curStatus[ackMsg.LayerID] = struct{}{}
+	curStatus[ackMsg.LayerID] = ackMsg.layerLocation
 
 	log.Debug().Str("status", fmt.Sprint(leader.status)).Msg("handleAckMsg")
 
@@ -410,8 +411,9 @@ func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 func assignmentSatisfied(a Assignment, s status) bool {
 	for node, layers := range a {
 		for layer := range layers {
-			// checks if the layer exists in the current status
-			if _, ok := s[node][layer]; !ok {
+			// checks if the layer exists (in memory, not in disk or client) in the current status
+			location, ok := s[node][layer]
+			if !ok || location != InmemLayer {
 				return false
 			}
 		}
@@ -717,7 +719,7 @@ func (prLeader *PullRetransmitLeaderNode) handleAckMsg(ackMsg *ackMsg) {
 
 	curStatus := prLeader.status[ackMsg.SrcID]
 	// add the layer to current status
-	curStatus[ackMsg.LayerID] = struct{}{}
+	curStatus[ackMsg.LayerID] = ackMsg.layerLocation
 
 	log.Debug().Str("status", fmt.Sprint(prLeader.status)).Msg("got ack msg")
 
@@ -784,16 +786,16 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 	prLeader.mu.Lock()
 	a := prLeader.assignment
 
-	// includes the leader this time
-	myID := prLeader.GetMyID()
-	if _, ok := prLeader.status[myID]; !ok {
-		leaderLayers := make(LayerIDs)
-		for layerID := range prLeader.layers {
-			log.Debug().Uint("layerID", uint(layerID)).Msg("loaded a layer")
-			leaderLayers[layerID] = struct{}{}
-		}
-		prLeader.status[myID] = leaderLayers
-	}
+	// // includes the leader this time
+	// myID := prLeader.GetMyID()
+	// if _, ok := prLeader.status[myID]; !ok {
+	// 	leaderLayers := make(LayerIDs)
+	// 	for layerID := range prLeader.layers {
+	// 		log.Debug().Uint("layerID", uint(layerID)).Msg("loaded a layer")
+	// 		leaderLayers[layerID] = struct{}{}
+	// 	}
+	// 	prLeader.status[myID] = leaderLayers
+	// }
 
 	// add entries to layerOwners based on status map
 	for nodeID, layerIDs := range prLeader.status {
@@ -825,7 +827,7 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 		nodeStatus := prLeader.status[dest]
 
 		for layerID := range layerIDs {
-			if _, ok := nodeStatus[layerID]; !ok {
+			if location, ok := nodeStatus[layerID]; !ok || location != InmemLayer {
 				// create new jobs map if it doesn't exist
 				if _, ok := prLeader.jobsInfoMap[layerID]; !ok {
 					prLeader.jobsInfoMap[layerID] = make(jobInfos)
@@ -1115,10 +1117,11 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	var layerSrc LayerSrc
 	// load the layer to its memory
 	layerSrc = LayerSrc{
-		InmemData: layerMsg.LayerSrc.InmemData,
-		Fp:        "",
-		Size:      len(*layerMsg.LayerSrc.InmemData),
-		Offset:    0,
+		InmemData:     layerMsg.LayerSrc.InmemData,
+		Fp:            "",
+		Size:          len(*layerMsg.LayerSrc.InmemData),
+		Offset:        0,
+		LayerLocation: InmemLayer,
 	}
 	log.Debug().Msgf("saved a layer %v in memory", layerMsg.LayerID)
 
@@ -1130,7 +1133,7 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	}
 
 	// send ack to leader
-	ackMsg := NewAckMsg(receiver.node.GetMyID(), layerMsg.LayerID)
+	ackMsg := NewAckMsg(receiver.node.GetMyID(), layerMsg.LayerID, layerSrc.LayerLocation)
 	err := receiver.GetTransport().Send(receiver.getLeader(), ackMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to send ackMsg")
@@ -1147,8 +1150,8 @@ func (receiver *ReceiverNode) Announce() error {
 	receiver.mu.RLock()
 	// only send keys of the map
 	curLayerIDs := make(LayerIDs, len(receiver.layers))
-	for k := range receiver.layers {
-		curLayerIDs[k] = struct{}{}
+	for k, layerSrc := range receiver.layers {
+		curLayerIDs[k] = layerSrc.LayerLocation
 	}
 	receiver.mu.RUnlock()
 
