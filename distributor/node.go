@@ -206,7 +206,7 @@ type LeaderNode struct {
 }
 
 func newLeaderNodeBase(node node, layers Layers, assignment Assignment) *LeaderNode {
-	return &LeaderNode{
+	l := &LeaderNode{
 		node:                  node,
 		layers:                layers,
 		assignment:            assignment,
@@ -215,6 +215,16 @@ func newLeaderNodeBase(node node, layers Layers, assignment Assignment) *LeaderN
 		fetchChan:             make(map[LayerID]chan LayerSrc),
 		readyChan:             make(chan Assignment),
 	}
+
+	// only send keys of the map
+	curLayerIDs := make(LayerIDs, len(l.layers))
+	for k := range l.layers {
+		curLayerIDs[k] = struct{}{}
+	}
+
+	l.status[l.GetMyID()] = curLayerIDs
+
+	return l
 }
 
 func NewLeaderNode(node node, layers Layers, assignment Assignment) *LeaderNode {
@@ -770,6 +780,7 @@ func (prLeader *PullRetransmitLeaderNode) handleAckMsg(ackMsg *ackMsg) {
 
 // This time, the leader sends only the layers no other node has initially. Otherwise, it asks for retransmission.
 func (prLeader *PullRetransmitLeaderNode) sendLayers() {
+	log.Debug().Msg("start sending layers")
 	prLeader.mu.Lock()
 	a := prLeader.assignment
 
@@ -778,6 +789,7 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 	if _, ok := prLeader.status[myID]; !ok {
 		leaderLayers := make(LayerIDs)
 		for layerID := range prLeader.layers {
+			log.Debug().Uint("layerID", uint(layerID)).Msg("loaded a layer")
 			leaderLayers[layerID] = struct{}{}
 		}
 		prLeader.status[myID] = leaderLayers
@@ -1037,6 +1049,7 @@ type ReceiverNode struct {
 }
 
 func newReceiverNodeBase(node node, layers Layers, storagePath string) *ReceiverNode {
+
 	return &ReceiverNode{
 		node:        node,
 		storagePath: storagePath,

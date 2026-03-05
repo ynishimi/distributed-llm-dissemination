@@ -264,6 +264,7 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 					}
 					data = data[n:]
 				}
+				log.Debug().Uint("layerID", uint(layerMsg.LayerID)).Msg("completed")
 			} else {
 				_, err = conn.Write(*inmemData)
 				if err != nil {

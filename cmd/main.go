@@ -59,7 +59,7 @@ func main() {
 
 	myClientConf, err := GetClientConf(conf, distributor.NodeID(myID))
 	if err != nil {
-		log.Warn().Err(err).Msg("node not found in config")
+		log.Warn().Err(err).Msg("client not found in config")
 	}
 
 	if *client {
@@ -78,7 +78,10 @@ func main() {
 			return
 		}
 
-		layers := CreateLayers(myNodeConf, conf.LayerSize, false)
+		layers := make(distributor.Layers)
+		for layerID := range myClientConf.Layers {
+			layers[layerID] = CreateInmemLayer(layerID, conf.LayerSize)
+		}
 		RunClient(myClientConf.ID, t, layers)
 	}
 
