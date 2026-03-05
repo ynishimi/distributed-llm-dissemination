@@ -30,7 +30,7 @@ type TcpTransport struct {
 	incomingMsgChan chan Message
 	conns           map[string]*protectedConn
 	limiter         *rate.Limiter
-	addrRegistory   AddrRegistory
+	addrRegistry    AddrRegistry
 
 	mu sync.RWMutex
 }
@@ -47,16 +47,16 @@ type tempLayerInfo struct {
 	// SaveDisk  bool
 }
 
-// AddrRegistory stores the mapping of NodeID and its addr.
-type AddrRegistory map[NodeID]string
+// AddrRegistry stores the mapping of NodeID and its addr.
+type AddrRegistry map[NodeID]string
 
-func NewTcpTransport(addr string, bufSize uint, addrRegistory AddrRegistory, limitRate int) (*TcpTransport, error) {
+func NewTcpTransport(addr string, bufSize uint, addrRegistory AddrRegistry, limitRate int) (*TcpTransport, error) {
 	t := &TcpTransport{
 		addr:            addr,
 		incomingMsgChan: make(chan Message, bufSize),
 		conns:           make(map[string]*protectedConn),
 		limiter:         nil,
-		addrRegistory:   addrRegistory,
+		addrRegistry:    addrRegistory,
 	}
 
 	if limitRate != 0 {
@@ -153,11 +153,20 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 func (t *TcpTransport) Connect(addrID NodeID) error {
 
 	t.mu.RLock()
-	addr, ok := t.addrRegistory[addrID]
+	addr, ok := t.addrRegistry[addrID]
 	myAddr := t.addr
 	t.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("addr of %d does not exist", addrID)
+	}
+
+	t.mu.RLock()
+	curConn := t.conns[addr]
+	t.mu.RUnlock()
+
+	if curConn != nil {
+		log.Debug().Str("addr", addr).Msg("conn already established")
+		return nil
 	}
 
 	if addr == myAddr {
@@ -180,7 +189,7 @@ func (t *TcpTransport) Connect(addrID NodeID) error {
 
 func (t *TcpTransport) Send(destID NodeID, message Message) error {
 	t.mu.RLock()
-	dest, ok := t.addrRegistory[destID]
+	dest, ok := t.addrRegistry[destID]
 	t.mu.RUnlock()
 
 	if !ok {

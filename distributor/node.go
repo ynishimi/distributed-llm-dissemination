@@ -332,6 +332,7 @@ func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layerSrc Layer
 }
 
 func (leader *LeaderNode) fetchFromClient(layerID LayerID) (*LayerSrc, error) {
+	log.Debug().Uint("layerID", uint(layerID)).Msg("fetching from client")
 	leader.mu.Lock()
 	ch, ok := leader.fetchChan[layerID]
 	if !ok {
@@ -1073,6 +1074,7 @@ func (receiver *ReceiverNode) handleIncomingMsg() {
 }
 
 func (receiver *ReceiverNode) fetchFromClient(layerID LayerID) (*LayerSrc, error) {
+	log.Debug().Uint("layerID", uint(layerID)).Msg("fetching from client")
 	receiver.mu.Lock()
 	ch, ok := receiver.fetchChan[layerID]
 	if !ok {

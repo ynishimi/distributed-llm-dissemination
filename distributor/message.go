@@ -20,6 +20,7 @@ const (
 	MsgTypeAck
 	MsgTypeLayer
 	MsgTypeRetransmit
+	MsgTypeClientReq
 	MsgTypeStartup
 	MsgTypeSimple
 	MsgTypeTransport
@@ -165,7 +166,7 @@ func (m *clientReqMsg) Src() string {
 }
 
 func (m *clientReqMsg) Type() MsgType {
-	return MsgTypeRetransmit
+	return MsgTypeClientReq
 }
 
 func (m *clientReqMsg) String() string {
@@ -246,6 +247,8 @@ func decodeMsg(m TransportMsg) (Message, error) {
 	// 	return unmarshalRawMsg[*layerMsg](m.Payload)
 	case MsgTypeRetransmit:
 		return unmarshalRawMsg[*retransmitMsg](m.Payload)
+	case MsgTypeClientReq:
+		return unmarshalRawMsg[*clientReqMsg](m.Payload)
 	case MsgTypeStartup:
 		return unmarshalRawMsg[*startupMsg](m.Payload)
 	case MsgTypeSimple:

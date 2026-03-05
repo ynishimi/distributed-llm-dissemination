@@ -64,12 +64,12 @@ func main() {
 
 	if *client {
 		// creates registory (only the node to which the client connects)
-		addrRegistry := make(distributor.AddrRegistory, 1)
+		addrRegistry := make(distributor.AddrRegistry, 1)
 		if myClientConf.ID != myNodeConf.ID {
 			log.Error().Err(err).Msg("weird node")
 			return
 		}
-		addrRegistry[myClientConf.ID] = myClientConf.Addr
+		addrRegistry[myNodeConf.ID] = myNodeConf.Addr
 
 		// create transport
 		t, err := distributor.NewTcpTransport(myClientConf.Addr, 1, addrRegistry, myClientConf.LimitRate)
@@ -103,9 +103,12 @@ func main() {
 	}
 
 	// creates registory
-	addrRegistry := make(distributor.AddrRegistory, numPeers)
+	addrRegistry := make(distributor.AddrRegistry, numPeers)
 	for _, nodeconf := range conf.Nodes {
 		addrRegistry[nodeconf.ID] = nodeconf.Addr
+	}
+	if myClientConf != nil {
+		addrRegistry[distributor.ClientID] = myClientConf.Addr
 	}
 
 	// create transport
@@ -114,6 +117,15 @@ func main() {
 		log.Error().Err(err).Msg("failed to create transport")
 		return
 	}
+
+	// connect to the client
+	if myClientConf != nil {
+		if err := t.Connect(distributor.ClientID); err != nil {
+			log.Error().Err(err).Msg("failed to connect to client")
+			return
+		}
+	}
+
 	n := distributor.NewNode(myID, leaderNodeConf.ID, t)
 
 	if myNodeConf.IsLeader {

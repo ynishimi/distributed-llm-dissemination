@@ -46,7 +46,7 @@ func TestTransportSendSingle(t *testing.T) {
 		sendSingle(t, p1, p2)
 	})
 	t.Run("tcp", func(t *testing.T) {
-		addrs := distributor.AddrRegistory{
+		addrs := distributor.AddrRegistry{
 			peer1ID: ":8080",
 			peer2ID: ":8081",
 		}
@@ -113,7 +113,7 @@ func TestInmemoryTransportSendThree(t *testing.T) {
 	})
 
 	t.Run("tcp", func(t *testing.T) {
-		addrs := distributor.AddrRegistory{
+		addrs := distributor.AddrRegistry{
 			peer1ID: ":8080",
 			peer2ID: ":8081",
 		}
@@ -165,7 +165,7 @@ func TestInmemoryTransportBroadcastSingle(t *testing.T) {
 		broadcastSingle(t, p1, p2)
 	})
 	t.Run("tcp", func(t *testing.T) {
-		addrs := distributor.AddrRegistory{
+		addrs := distributor.AddrRegistry{
 			peer1ID: ":8080",
 			peer2ID: ":8081",
 		}

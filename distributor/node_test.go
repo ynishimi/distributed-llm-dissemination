@@ -144,7 +144,7 @@ func execDistribution[R distributor.Receiver](t testing.TB, assignment *distribu
 
 // createTcpTransports creates a slice of TCP transports.
 func createTcpTransports(NumPeers, LeaderNodeID int) []distributor.Transport {
-	addrs := make(distributor.AddrRegistory, NumPeers)
+	addrs := make(distributor.AddrRegistry, NumPeers)
 	transports := make([]distributor.Transport, NumPeers)
 	for i := range NumPeers {
 		addrs[distributor.NodeID(i)] = fmt.Sprintf(":%d", 8080+LeaderNodeID+i)

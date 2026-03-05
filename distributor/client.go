@@ -25,10 +25,10 @@ func NewClient(nodeID NodeID, t Transport, layers Layers) *Client {
 		layers: layers,
 	}
 
-	// connect to the node
-	if err := c.t.Connect(nodeID); err != nil {
-		log.Debug().Err(err).Msgf("failed to connect to %v", nodeID)
-	}
+	// // connect to the node
+	// if err := c.t.Connect(nodeID); err != nil {
+	// 	log.Debug().Err(err).Msgf("failed to connect to %v", nodeID)
+	// }
 
 	// wait for commands
 	c.handleIncomingMsg()
@@ -58,6 +58,10 @@ func (c *Client) handleClientReqMsg(clientReqMsg *clientReqMsg) error {
 	// send (retransmit) layer to dest.
 	// the layer should be stored in memory
 	layerMsg := NewLayerMsg(ClientID, clientReqMsg.LayerID, layerSrc)
+	// connect to the node
+	if err := c.t.Connect(c.nodeID); err != nil {
+		log.Debug().Err(err).Msgf("failed to connect to %v", c.nodeID)
+	}
 	err := c.t.Send(c.nodeID, layerMsg)
 	if err != nil {
 		log.Error().Err(err).Msgf("failed to send layer to %v", clientReqMsg.SrcID)
