@@ -26,7 +26,7 @@ func main() {
 	if *myID < 0 || *fileName == "" {
 		fmt.Println("usage: -id 0 -f config.json -s . -m 2 -l -v")
 		fmt.Println()
-		PrintJsonExample()
+		// PrintJsonExample()
 		return
 	}
 	myID := distributor.NodeID(*myID)
@@ -72,16 +72,17 @@ func main() {
 		addrRegistry[myNodeConf.ID] = myNodeConf.Addr
 
 		// create transport
-		t, err := distributor.NewTcpTransport(myClientConf.Addr, 1, addrRegistry, myClientConf.LimitRate)
+		t, err := distributor.NewTcpTransport(myClientConf.Addr, 1, addrRegistry, true)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to create transport")
 			return
 		}
 
 		layers := make(distributor.Layers)
-		for layerID := range myClientConf.Layers {
-			layers[layerID] = CreateInmemLayer(layerID, conf.LayerSize)
+		for layerID, rateLimit := range myClientConf.LayersRateLimit {
+			layers[layerID] = CreateClientLayer(layerID, conf.LayerSize, rateLimit)
 		}
+
 		RunClient(myClientConf.ID, t, layers)
 	}
 
@@ -115,7 +116,7 @@ func main() {
 	}
 
 	// create transport
-	t, err := distributor.NewTcpTransport(myNodeConf.Addr, numPeers, addrRegistry, 0)
+	t, err := distributor.NewTcpTransport(myNodeConf.Addr, numPeers, addrRegistry, false)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to create transport")
 		return

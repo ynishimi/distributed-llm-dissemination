@@ -168,6 +168,8 @@ type LayerSrc struct {
 	Offset int64
 	// Location of the layer
 	LayerLocation LayerLocation
+	// rate limit of the layer
+	LimitRate int
 }
 
 func (l LayerIDs) String() string {

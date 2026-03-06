@@ -123,6 +123,7 @@ type layerMsg struct {
 	LayerSrc LayerSrc
 	// SaveDisk stores the flag of if the layer is saved in the disk or not
 	// SaveDisk bool
+	limitRate int
 }
 
 // NewLayerMsg creates a new layerMsg. If the layer is not in memory, it fetches the file from the disk.

@@ -149,7 +149,7 @@ func createTcpTransports(NumPeers, LeaderNodeID int) []distributor.Transport {
 	for i := range NumPeers {
 		addrs[distributor.NodeID(i)] = fmt.Sprintf(":%d", 8080+LeaderNodeID+i)
 		var err error
-		transports[i], err = distributor.NewTcpTransport(addrs[distributor.NodeID(i)], uint(NumPeers), addrs, 0)
+		transports[i], err = distributor.NewTcpTransport(addrs[distributor.NodeID(i)], uint(NumPeers), addrs, false)
 		if err != nil {
 			panic(err)
 		}

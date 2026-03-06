@@ -46,11 +46,11 @@ func TestTransportSendSingle(t *testing.T) {
 			peer1ID: ":8080",
 			peer2ID: ":8081",
 		}
-		p1, err := distributor.NewTcpTransport(addrs[peer1ID], NumPeer, addrs, 0)
+		p1, err := distributor.NewTcpTransport(addrs[peer1ID], NumPeer, addrs, false)
 		if err != nil {
 			t.Fatal(err)
 		}
-		p2, err := distributor.NewTcpTransport(addrs[peer2ID], NumPeer, addrs, 0)
+		p2, err := distributor.NewTcpTransport(addrs[peer2ID], NumPeer, addrs, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -113,11 +113,11 @@ func TestInmemoryTransportSendThree(t *testing.T) {
 			peer1ID: ":8080",
 			peer2ID: ":8081",
 		}
-		p1, err := distributor.NewTcpTransport(addrs[peer1ID], NumPeer, addrs, 0)
+		p1, err := distributor.NewTcpTransport(addrs[peer1ID], NumPeer, addrs, false)
 		if err != nil {
 			t.Fatal(err)
 		}
-		p2, err := distributor.NewTcpTransport(addrs[peer2ID], NumPeer, addrs, 0)
+		p2, err := distributor.NewTcpTransport(addrs[peer2ID], NumPeer, addrs, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -165,11 +165,11 @@ func TestInmemoryTransportBroadcastSingle(t *testing.T) {
 			peer1ID: ":8080",
 			peer2ID: ":8081",
 		}
-		p1, err := distributor.NewTcpTransport(addrs[peer1ID], NumPeer, addrs, 0)
+		p1, err := distributor.NewTcpTransport(addrs[peer1ID], NumPeer, addrs, false)
 		if err != nil {
 			t.Fatal(err)
 		}
-		p2, err := distributor.NewTcpTransport(addrs[peer2ID], NumPeer, addrs, 0)
+		p2, err := distributor.NewTcpTransport(addrs[peer2ID], NumPeer, addrs, false)
 		if err != nil {
 			t.Fatal(err)
 		}

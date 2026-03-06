@@ -29,7 +29,7 @@ type TcpTransport struct {
 	ln              net.Listener
 	incomingMsgChan chan Message
 	conns           map[string]*protectedConn
-	limiter         *rate.Limiter
+	isClient        bool
 	addrRegistry    AddrRegistry
 
 	mu sync.RWMutex
@@ -50,17 +50,13 @@ type tempLayerInfo struct {
 // AddrRegistry stores the mapping of NodeID and its addr.
 type AddrRegistry map[NodeID]string
 
-func NewTcpTransport(addr string, bufSize uint, addrRegistory AddrRegistry, limitRate int) (*TcpTransport, error) {
+func NewTcpTransport(addr string, bufSize uint, addrRegistory AddrRegistry, isClient bool) (*TcpTransport, error) {
 	t := &TcpTransport{
 		addr:            addr,
 		incomingMsgChan: make(chan Message, bufSize),
 		conns:           make(map[string]*protectedConn),
-		limiter:         nil,
+		isClient:        isClient,
 		addrRegistry:    addrRegistory,
-	}
-
-	if limitRate != 0 {
-		t.limiter = rate.NewLimiter(rate.Limit(limitRate), limitRate)
 	}
 
 	// start listening
@@ -130,9 +126,9 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			d = json.NewDecoder(conn)
 
 			// fixme: currently, always loads the layer to memory.
-			layerSrc := LayerSrc{&data, "", len(data), 0, InmemLayer}
+			layerSrc := LayerSrc{&data, "", len(data), 0, InmemLayer, 0}
 
-			t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc}
+			t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc, 0}
 			continue
 		}
 
@@ -252,13 +248,14 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 
 		if inmemData := layerMsg.LayerSrc.InmemData; inmemData != nil && layerMsg.LayerSrc.LayerLocation == InmemLayer {
 			// sends layerData directly
-			if t.limiter != nil {
+			if t.isClient {
+				limiter := rate.NewLimiter(rate.Limit(layerMsg.limitRate), layerMsg.limitRate)
 				// limit speed
-				log.Debug().Uint("layerID", uint(layerMsg.LayerID)).Msgf("sending with limit: %f MiB/s", float64(t.limiter.Limit())/math.Pow(2, 20))
+				log.Debug().Uint("layerID", uint(layerMsg.LayerID)).Msgf("sending with limit: %f MiB/s", float64(limiter.Limit())/math.Pow(2, 20))
 				data := *inmemData
 				for len(data) > 0 {
-					n := min(len(data), t.limiter.Burst())
-					t.limiter.WaitN(context.Background(), n)
+					n := min(len(data), limiter.Burst())
+					limiter.WaitN(context.Background(), n)
 					_, err = conn.Write(data[:n])
 					if err != nil {
 						return err

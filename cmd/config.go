@@ -25,11 +25,14 @@ type NodeConf struct {
 	IsLeader      bool
 	InitialLayers distributor.LayerIDs
 }
+
+// set of LayerIDs for clients
+type LayerIDsRateLimit map[distributor.LayerID]int
+
 type ClientConf struct {
-	ID        distributor.NodeID
-	Addr      string
-	Layers    distributor.LayerIDs
-	LimitRate int
+	ID              distributor.NodeID
+	Addr            string
+	LayersRateLimit LayerIDsRateLimit
 }
 
 // ReadJson reads Json file and returns config struct.
@@ -96,19 +99,14 @@ func CreateLayers(myConf NodeConf, layerSize int, saveDisk bool) distributor.Lay
 }
 
 func AddClientLayers(clientConf *ClientConf, layerSize int, layers distributor.Layers) distributor.Layers {
-	for layerID := range clientConf.Layers {
+	for layerID, limitRate := range clientConf.LayersRateLimit {
 		if _, ok := layers[layerID]; ok {
 			// already in memory/disk
 			continue
 		}
-		layerSrc := distributor.LayerSrc{
-			InmemData:     nil,
-			Fp:            "",
-			Size:          layerSize,
-			Offset:        0,
-			LayerLocation: distributor.ClientLayer,
-		}
-		layers[layerID] = layerSrc
+
+		layers[layerID] = CreateClientLayer(layerID, layerSize, limitRate)
+
 	}
 
 	return layers
@@ -148,6 +146,14 @@ func CreateInmemLayer(layerID distributor.LayerID, layerSize int) distributor.La
 		Offset:        0,
 		LayerLocation: distributor.InmemLayer,
 	}
+}
+
+// CreateClientLayer creates layers with rate limit.
+func CreateClientLayer(layerID distributor.LayerID, layerSize int, limitRate int) distributor.LayerSrc {
+	layerSrc := CreateInmemLayer(layerID, layerSize)
+	layerSrc.LimitRate = limitRate
+
+	return layerSrc
 }
 
 // PrintJsonExample prints an example of config.
