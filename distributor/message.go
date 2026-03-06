@@ -59,16 +59,16 @@ func (m *announceMsg) String() string {
 // ackMsg
 
 type ackMsg struct {
-	SrcID         NodeID
-	LayerID       LayerID
-	layerLocation LayerLocation
+	SrcID    NodeID
+	LayerID  LayerID
+	location LayerLocation
 }
 
 func NewAckMsg(src NodeID, layerID LayerID, layerLocation LayerLocation) *ackMsg {
 	return &ackMsg{
-		SrcID:         src,
-		LayerID:       layerID,
-		layerLocation: layerLocation,
+		SrcID:    src,
+		LayerID:  layerID,
+		location: layerLocation,
 	}
 }
 
@@ -149,7 +149,7 @@ func (m *layerMsg) Payload() []byte {
 }
 
 func (m *layerMsg) String() string {
-	return fmt.Sprintf("from %v: layer %v saveDisk: %v", m.SrcID, m.LayerID, m.LayerSrc.LayerLocation)
+	return fmt.Sprintf("from %v: layer %v, location: %v, rate: %v", m.SrcID, m.LayerID, m.LayerSrc.Meta.Location, m.LayerSrc.Meta.LimitRate)
 }
 
 // clientReqMsg

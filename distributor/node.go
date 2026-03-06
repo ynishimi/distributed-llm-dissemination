@@ -129,8 +129,13 @@ type LayerID uint
 // set of NodeIDs
 type NodeIDs map[NodeID]struct{}
 
-// set of LayerIDs
-type LayerIDs map[LayerID]LayerLocation
+type LayerMeta struct {
+	Location  LayerLocation
+	LimitRate int
+}
+
+// set of LayerIDs with its location, rate (used for job assignment)
+type LayerIDs map[LayerID]LayerMeta
 
 // map of layers (has data in memory or has a path to the file)
 type Layers map[LayerID]LayerSrc
@@ -166,10 +171,8 @@ type LayerSrc struct {
 	Size int
 	// Offset (not used yet)
 	Offset int64
-	// Location of the layer
-	LayerLocation LayerLocation
-	// rate limit of the layer
-	LimitRate int
+	// metadata
+	Meta LayerMeta
 }
 
 func (l LayerIDs) String() string {
@@ -221,7 +224,7 @@ func newLeaderNodeBase(node node, layers Layers, assignment Assignment) *LeaderN
 	// only send keys of the map
 	curLayerIDs := make(LayerIDs, len(l.layers))
 	for k, layerSrc := range l.layers {
-		curLayerIDs[k] = layerSrc.LayerLocation
+		curLayerIDs[k] = LayerMeta{layerSrc.Meta.Location, layerSrc.Meta.LimitRate}
 	}
 
 	l.status[l.GetMyID()] = curLayerIDs
@@ -302,7 +305,7 @@ func (leader *LeaderNode) sendLayers() {
 	for nodeID, layerIDs := range a {
 		for layerID := range layerIDs {
 			// skip the layer which is already stored in memory by the node
-			if location, ok := s[nodeID][layerID]; ok && location == InmemLayer {
+			if meta, ok := s[nodeID][layerID]; ok && meta.Location == InmemLayer {
 				continue
 			}
 
@@ -324,7 +327,7 @@ func (leader *LeaderNode) sendLayers() {
 func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layerSrc LayerSrc) error {
 	log.Debug().Msgf("sending layer %v", layerID)
 	ls := layerSrc
-	if layerSrc.LayerLocation == ClientLayer {
+	if layerSrc.Meta.Location == ClientLayer {
 		log.Debug().Uint("layer", uint(layerID)).Msg("loading layer from client")
 		// load the layer from the client
 		pLs, err := leader.fetchFromClient(layerID)
@@ -368,11 +371,13 @@ func (leader *LeaderNode) handleLayerMsg(layerMsg *layerMsg) {
 	var layerSrc LayerSrc
 	// load the layer to its memory
 	layerSrc = LayerSrc{
-		InmemData:     layerMsg.LayerSrc.InmemData,
-		Fp:            "",
-		Size:          len(*layerMsg.LayerSrc.InmemData),
-		Offset:        0,
-		LayerLocation: InmemLayer,
+		InmemData: layerMsg.LayerSrc.InmemData,
+		Fp:        "",
+		Size:      len(*layerMsg.LayerSrc.InmemData),
+		Offset:    0,
+		Meta: LayerMeta{
+			Location: InmemLayer,
+		},
 	}
 	log.Debug().Msgf("saved layer %v in memory", layerMsg.LayerID)
 
@@ -385,7 +390,7 @@ func (leader *LeaderNode) handleLayerMsg(layerMsg *layerMsg) {
 
 	// update my status
 	// send ack to leader
-	ackMsg := NewAckMsg(leader.node.GetMyID(), layerMsg.LayerID, layerSrc.LayerLocation)
+	ackMsg := NewAckMsg(leader.node.GetMyID(), layerMsg.LayerID, layerSrc.Meta.Location)
 	err := leader.GetTransport().Send(leader.getLeader(), ackMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to send ackMsg")
@@ -398,7 +403,9 @@ func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 
 	curStatus := leader.status[ackMsg.SrcID]
 	// add the layer to current status
-	curStatus[ackMsg.LayerID] = ackMsg.layerLocation
+	curStatus[ackMsg.LayerID] = LayerMeta{
+		Location: ackMsg.location,
+	}
 
 	log.Debug().Str("status", fmt.Sprint(leader.status)).Msg("handleAckMsg")
 
@@ -419,8 +426,8 @@ func assignmentSatisfied(a Assignment, s status) bool {
 	for node, layers := range a {
 		for layer := range layers {
 			// checks if the layer exists (in memory, not in disk or client) in the current status
-			location, ok := s[node][layer]
-			if !ok || location != InmemLayer {
+			meta, ok := s[node][layer]
+			if !ok || meta.Location != InmemLayer {
 				return false
 			}
 		}
@@ -726,7 +733,9 @@ func (prLeader *PullRetransmitLeaderNode) handleAckMsg(ackMsg *ackMsg) {
 
 	curStatus := prLeader.status[ackMsg.SrcID]
 	// add the layer to current status
-	curStatus[ackMsg.LayerID] = ackMsg.layerLocation
+	curStatus[ackMsg.LayerID] = LayerMeta{
+		Location: ackMsg.location,
+	}
 
 	log.Debug().Str("status", fmt.Sprint(prLeader.status)).Msg("got ack msg")
 
@@ -836,7 +845,7 @@ func (prLeader *PullRetransmitLeaderNode) sendLayers() {
 		nodeStatus := prLeader.status[dest]
 
 		for layerID := range layerIDs {
-			if location, ok := nodeStatus[layerID]; !ok || location != InmemLayer {
+			if meta, ok := nodeStatus[layerID]; !ok || meta.Location != InmemLayer {
 				// create new jobs map if it doesn't exist
 				if _, ok := prLeader.jobsInfoMap[layerID]; !ok {
 					prLeader.jobsInfoMap[layerID] = make(jobInfos)
@@ -925,24 +934,34 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 	return prLeader.sendRetransmit(stolenLayerID, node, dest)
 }
 
-// getMinLoadedSender returns the sender with minimum jobs that has specified layer ID
+// getMinLoadedSender returns the sender with lowest limit rate, or the one with minimum jobs that has specified layer
 func (prLeader *PullRetransmitLeaderNode) getMinLoadedSender(layerID LayerID) NodeID {
-	var minSender NodeID
+	var bestSender NodeID
+	var bestRate int
 	var minCount uint
 
 	minCount = math.MaxUint
 	for sender, count := range prLeader.senderLoadCounter {
-		layerIDs := prLeader.status[sender]
-		if _, ok := layerIDs[layerID]; ok {
+		meta, ok := prLeader.status[sender][layerID]
+		if !ok {
+			continue
+		}
+		// prioritize the node with the lowest limit effectiveRate
+		effectiveRate := meta.LimitRate
+		if effectiveRate == 0 {
+			// no rate limit!
+			effectiveRate = math.MaxInt
+		}
+
+		// adopt the node with faster rate
+		if (effectiveRate > bestRate) ||
 			// make the selection deterministic (should be modified if the selection should be randomized)
-			if count < minCount || (count == minCount && sender < minSender) {
-				minSender = sender
-				minCount = count
-			}
+			(count < minCount || (count == minCount && sender < bestSender)) {
+			bestSender = sender
+			minCount = count
 		}
 	}
-
-	return minSender
+	return bestSender
 }
 
 // getRarestOwnJob returns the rarest job the node is assigned.
@@ -1122,11 +1141,13 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	var layerSrc LayerSrc
 	// load the layer to its memory
 	layerSrc = LayerSrc{
-		InmemData:     layerMsg.LayerSrc.InmemData,
-		Fp:            "",
-		Size:          len(*layerMsg.LayerSrc.InmemData),
-		Offset:        0,
-		LayerLocation: InmemLayer,
+		InmemData: layerMsg.LayerSrc.InmemData,
+		Fp:        "",
+		Size:      len(*layerMsg.LayerSrc.InmemData),
+		Offset:    0,
+		Meta: LayerMeta{
+			Location: InmemLayer,
+		},
 	}
 	log.Debug().Msgf("saved layer %v in memory", layerMsg.LayerID)
 
@@ -1138,7 +1159,7 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	}
 
 	// send ack to leader
-	ackMsg := NewAckMsg(receiver.node.GetMyID(), layerMsg.LayerID, layerSrc.LayerLocation)
+	ackMsg := NewAckMsg(receiver.node.GetMyID(), layerMsg.LayerID, layerSrc.Meta.Location)
 	err := receiver.GetTransport().Send(receiver.getLeader(), ackMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to send ackMsg")
@@ -1156,7 +1177,11 @@ func (receiver *ReceiverNode) Announce() error {
 	// only send keys of the map
 	curLayerIDs := make(LayerIDs, len(receiver.layers))
 	for k, layerSrc := range receiver.layers {
-		curLayerIDs[k] = layerSrc.LayerLocation
+		curLayerIDs[k] = LayerMeta{
+			Location:  layerSrc.Meta.Location,
+			LimitRate: layerSrc.Meta.LimitRate,
+		}
+
 	}
 	receiver.mu.RUnlock()
 
@@ -1219,7 +1244,7 @@ func (rReceiver *RetransmitReceiverNode) handleRetransmitMsg(retransmitMsg *retr
 	// add the destination node to the routing table and connect to it
 	rReceiver.addNode(retransmitMsg.DestID)
 
-	if ls.LayerLocation == ClientLayer {
+	if ls.Meta.Location == ClientLayer {
 		log.Debug().Uint("layer", uint(retransmitMsg.LayerID)).Msg("loading layer from client")
 		// load the layer from the client
 		pLs, err := rReceiver.fetchFromClient(retransmitMsg.LayerID)

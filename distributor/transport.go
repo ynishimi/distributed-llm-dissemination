@@ -126,7 +126,9 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			d = json.NewDecoder(conn)
 
 			// fixme: currently, always loads the layer to memory.
-			layerSrc := LayerSrc{&data, "", len(data), 0, InmemLayer, 0}
+			layerSrc := LayerSrc{&data, "", len(data), 0, LayerMeta{
+				Location: InmemLayer,
+			}}
 
 			t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc, 0}
 			continue
@@ -246,7 +248,7 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 			return err
 		}
 
-		if inmemData := layerMsg.LayerSrc.InmemData; inmemData != nil && layerMsg.LayerSrc.LayerLocation == InmemLayer {
+		if inmemData := layerMsg.LayerSrc.InmemData; inmemData != nil && layerMsg.LayerSrc.Meta.Location == InmemLayer {
 			// sends layerData directly
 			if t.isClient {
 				limiter := rate.NewLimiter(rate.Limit(layerMsg.limitRate), layerMsg.limitRate)
@@ -269,7 +271,7 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 					return err
 				}
 			}
-		} else if layerMsg.LayerSrc.LayerLocation == DiskLayer {
+		} else if layerMsg.LayerSrc.Meta.Location == DiskLayer {
 			if layerMsg.LayerSrc.Fp == "" {
 				return fmt.Errorf("no data source specified")
 			}

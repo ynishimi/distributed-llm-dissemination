@@ -128,11 +128,13 @@ func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layer
 	}
 
 	return distributor.LayerSrc{
-		InmemData:     nil,
-		Fp:            path,
-		Size:          layerSize,
-		Offset:        0,
-		LayerLocation: distributor.DiskLayer,
+		InmemData: nil,
+		Fp:        path,
+		Size:      layerSize,
+		Offset:    0,
+		Meta: distributor.LayerMeta{
+			Location: distributor.DiskLayer,
+		},
 	}
 }
 
@@ -140,18 +142,20 @@ func CreateInmemLayer(layerID distributor.LayerID, layerSize int) distributor.La
 	// add dummy data in memory
 	layerData := distributor.LayerData(make([]byte, layerSize))
 	return distributor.LayerSrc{
-		InmemData:     &layerData,
-		Fp:            "",
-		Size:          layerSize,
-		Offset:        0,
-		LayerLocation: distributor.InmemLayer,
+		InmemData: &layerData,
+		Fp:        "",
+		Size:      layerSize,
+		Offset:    0,
+		Meta: distributor.LayerMeta{
+			Location: distributor.InmemLayer,
+		},
 	}
 }
 
 // CreateClientLayer creates layers with rate limit.
 func CreateClientLayer(layerID distributor.LayerID, layerSize int, limitRate int) distributor.LayerSrc {
 	layerSrc := CreateInmemLayer(layerID, layerSize)
-	layerSrc.LimitRate = limitRate
+	layerSrc.Meta.LimitRate = limitRate
 
 	return layerSrc
 }
@@ -166,13 +170,21 @@ func PrintJsonExample() {
 	ncs[3] = NodeConf{3, ":8083", false, make(distributor.LayerIDs)}
 
 	// leader should have all the layers
-	ncs[0].InitialLayers[1] = distributor.InmemLayer
-	// ncs[0].InitialLayers[2] = struct{}{}
-	ncs[0].InitialLayers[3] = distributor.InmemLayer
+	ncs[0].InitialLayers[1] = distributor.LayerMeta{
+		Location: distributor.InmemLayer,
+	}
 
-	ncs[1].InitialLayers[1] = distributor.InmemLayer
-	// ncs[2].InitialLayers[2] = struct{}{}
-	ncs[3].InitialLayers[3] = distributor.InmemLayer
+	ncs[0].InitialLayers[3] = distributor.LayerMeta{
+		Location: distributor.InmemLayer,
+	}
+
+	ncs[1].InitialLayers[1] = distributor.LayerMeta{
+		Location: distributor.InmemLayer,
+	}
+
+	ncs[3].InitialLayers[3] = distributor.LayerMeta{
+		Location: distributor.InmemLayer,
+	}
 
 	a := make(distributor.Assignment)
 
@@ -180,17 +192,21 @@ func PrintJsonExample() {
 	a[2] = make(distributor.LayerIDs)
 	a[3] = make(distributor.LayerIDs)
 
-	// a[0][1] = struct{}{}
-	// a[0][2] = struct{}{}
-	// a[0][3] = struct{}{}
+	a[1][1] = distributor.LayerMeta{
+		Location: distributor.InmemLayer,
+	}
 
-	a[1][1] = distributor.InmemLayer
-
-	a[2][1] = distributor.InmemLayer
+	a[2][1] = distributor.LayerMeta{
+		Location: distributor.InmemLayer,
+	}
 	// a[2][2] = struct{}{}
-	a[2][3] = distributor.InmemLayer
+	a[2][3] = distributor.LayerMeta{
+		Location: distributor.InmemLayer,
+	}
 
-	a[3][3] = distributor.InmemLayer
+	a[3][3] = distributor.LayerMeta{
+		Location: distributor.InmemLayer,
+	}
 
 	c := config{
 		Nodes:      ncs,
