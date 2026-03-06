@@ -97,6 +97,10 @@ func CreateLayers(myConf NodeConf, layerSize int, saveDisk bool) distributor.Lay
 
 func AddClientLayers(clientConf *ClientConf, layerSize int, layers distributor.Layers) distributor.Layers {
 	for layerID := range clientConf.Layers {
+		if _, ok := layers[layerID]; ok {
+			// already in memory/disk
+			continue
+		}
 		layerSrc := distributor.LayerSrc{
 			InmemData:     nil,
 			Fp:            "",
