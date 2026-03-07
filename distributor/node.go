@@ -970,8 +970,11 @@ func (prLeader *PullRetransmitLeaderNode) getMinLoadedSender(layerID LayerID) No
 		// adopt the node with faster rate
 		if (effectiveRate > bestRate) ||
 			// make the selection deterministic (should be modified if the selection should be randomized)
-			(count < minCount || (count == minCount && sender < bestSender)) {
+			(effectiveRate == bestRate &&
+				(count < minCount ||
+					(count == minCount && sender < bestSender))) {
 			bestSender = sender
+			bestRate = effectiveRate
 			minCount = count
 		}
 	}
