@@ -1034,11 +1034,14 @@ func (prLeader *PullRetransmitLeaderNode) getRarestStealableJob(node NodeID) (ra
 		ownerCount := len(prLeader.layerOwners[layerID])
 
 		for dest, job := range prLeader.jobsInfoMap[layerID] {
-			if job.sender == node || job.status != Pending {
-				continue
-			}
 			sender := job.sender
-			if prLeader.senderLoadCounter[sender] == 0 {
+			senderRate := prLeader.status[sender][layerID].LimitRate
+			nodeRate := prLeader.status[node][layerID].LimitRate
+			if sender == node ||
+				job.status != Pending ||
+				prLeader.senderLoadCounter[sender] == 0 ||
+				// skip if the nodeRate is slower than senderRate
+				(nodeRate != 0 && nodeRate < senderRate) {
 				continue
 			}
 
