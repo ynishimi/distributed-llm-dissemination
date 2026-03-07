@@ -32,7 +32,7 @@ type LayerIDsRateLimit map[distributor.LayerID]int
 type ClientConf struct {
 	ID              distributor.NodeID
 	Addr            string
-	LayersRateLimit LayerIDsRateLimit
+	LayersRateLimit LayerIDsRateLimit `json:"Layers"`
 }
 
 // ReadJson reads Json file and returns config struct.
@@ -154,10 +154,16 @@ func CreateInmemLayer(layerID distributor.LayerID, layerSize int) distributor.La
 
 // CreateClientLayer creates layers with rate limit.
 func CreateClientLayer(layerID distributor.LayerID, layerSize int, limitRate int) distributor.LayerSrc {
-	layerSrc := CreateInmemLayer(layerID, layerSize)
-	layerSrc.Meta.LimitRate = limitRate
-
-	return layerSrc
+	return distributor.LayerSrc{
+		InmemData: nil,
+		Fp:        "",
+		Size:      layerSize,
+		Offset:    0,
+		Meta: distributor.LayerMeta{
+			Location:  distributor.ClientLayer,
+			LimitRate: limitRate,
+		},
+	}
 }
 
 // PrintJsonExample prints an example of config.

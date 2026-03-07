@@ -141,7 +141,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			return
 		}
 
-		log.Debug().Msgf("incoming msg: %s", msg.String())
+		// log.Debug().Msgf("incoming msg: %s", msg.String())
 
 		t.incomingMsgChan <- msg
 	}

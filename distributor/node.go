@@ -1171,7 +1171,7 @@ func (receiver *ReceiverNode) handleStartupMsg(*startupMsg) {
 	receiver.readyChan <- struct{}{}
 }
 
-// Announce() announces its existence (with the layers it has) to leader.
+// Announce announces its existence (with the layers it has) to leader.
 func (receiver *ReceiverNode) Announce() error {
 	receiver.mu.RLock()
 	// only send keys of the map
