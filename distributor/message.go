@@ -123,7 +123,7 @@ type layerMsg struct {
 	LayerSrc LayerSrc
 	// SaveDisk stores the flag of if the layer is saved in the disk or not
 	// SaveDisk bool
-	limitRate int
+	// limitRate int
 }
 
 // NewLayerMsg creates a new layerMsg. If the layer is not in memory, it fetches the file from the disk.
@@ -133,6 +133,7 @@ func NewLayerMsg(src NodeID, layerID LayerID, layerSrc LayerSrc) *layerMsg {
 		LayerID:  layerID,
 		LayerSrc: layerSrc,
 		// SaveDisk: saveDisk,
+		// limitRate: layerSrc.Meta.LimitRate,
 	}
 }
 

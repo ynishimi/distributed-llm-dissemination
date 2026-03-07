@@ -105,7 +105,7 @@ func AddClientLayers(clientConf *ClientConf, layerSize int, layers distributor.L
 			continue
 		}
 
-		layers[layerID] = CreateClientLayer(layerID, layerSize, limitRate)
+		layers[layerID] = CreateClientLayerInfo(layerID, layerSize, limitRate)
 
 	}
 
@@ -154,6 +154,19 @@ func CreateInmemLayer(layerID distributor.LayerID, layerSize int) distributor.La
 
 // CreateClientLayer creates layers with rate limit.
 func CreateClientLayer(layerID distributor.LayerID, layerSize int, limitRate int) distributor.LayerSrc {
+	layerSrc := CreateInmemLayer(layerID, layerSize)
+	layerSrc.Meta = distributor.LayerMeta{
+		// the layer is stored in memory of the client
+		Location:  distributor.InmemLayer,
+		LimitRate: limitRate,
+	}
+
+	log.Debug().Int("limitRate", limitRate).Send()
+	return layerSrc
+}
+
+// CreateClientLayerInfo creates layerSrc information remembered by the node.
+func CreateClientLayerInfo(layerID distributor.LayerID, layerSize int, limitRate int) distributor.LayerSrc {
 	return distributor.LayerSrc{
 		InmemData: nil,
 		Fp:        "",

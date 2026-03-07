@@ -137,6 +137,28 @@ type LayerMeta struct {
 // set of LayerIDs with its location, rate (used for job assignment)
 type LayerIDs map[LayerID]LayerMeta
 
+func (l LayerIDs) String() string {
+	layerIds := make([]LayerID, 0, len(l))
+	for id := range l {
+		layerIds = append(layerIds, id)
+	}
+	return fmt.Sprint(layerIds)
+}
+
+// func (l LayerIDs) String() string {
+// 	layerIds := make([]struct {
+// 		layerID   LayerID
+// 		limitRate int
+// 	}, 0, len(l))
+// 	for id, meta := range l {
+// 		layerIds = append(layerIds, struct {
+// 			layerID   LayerID
+// 			limitRate int
+// 		}{id, meta.LimitRate})
+// 	}
+// 	return fmt.Sprint(layerIds)
+// }
+
 // map of layers (has data in memory or has a path to the file)
 type Layers map[LayerID]LayerSrc
 
@@ -173,14 +195,6 @@ type LayerSrc struct {
 	Offset int64
 	// metadata
 	Meta LayerMeta
-}
-
-func (l LayerIDs) String() string {
-	layerIds := make([]LayerID, 0, len(l))
-	for id := range l {
-		layerIds = append(layerIds, id)
-	}
-	return fmt.Sprint(layerIds)
 }
 
 // Leader

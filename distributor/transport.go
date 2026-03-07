@@ -130,7 +130,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 				Location: InmemLayer,
 			}}
 
-			t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc, 0}
+			t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc}
 			continue
 		}
 
@@ -251,7 +251,7 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 		if inmemData := layerMsg.LayerSrc.InmemData; inmemData != nil && layerMsg.LayerSrc.Meta.Location == InmemLayer {
 			// sends layerData directly
 			if t.isClient {
-				limiter := rate.NewLimiter(rate.Limit(layerMsg.limitRate), layerMsg.limitRate)
+				limiter := rate.NewLimiter(rate.Limit(layerMsg.LayerSrc.Meta.LimitRate), layerMsg.LayerSrc.Meta.LimitRate)
 				// limit speed
 				log.Debug().Uint("layerID", uint(layerMsg.LayerID)).Msgf("sending with limit: %f MiB/s", float64(limiter.Limit())/math.Pow(2, 20))
 				data := *inmemData
@@ -286,6 +286,8 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 			// directly send file from disk, using sendFile syscall
 			_, err = io.Copy(conn, f)
 			return err
+		} else {
+			return fmt.Errorf("unknown error sending layer %v", layerMsg.LayerID)
 		}
 
 		return nil
