@@ -162,6 +162,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			marshaledTransportHdr, err := json.Marshal(transportMsg)
 			if err != nil {
 				log.Error().Err(err).Send()
+				pDestConn.mu.Unlock()
 				return
 			}
 
@@ -169,6 +170,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			log.Debug().Msg("header written to dest")
 			if err != nil {
 				log.Error().Err(err).Send()
+				pDestConn.mu.Unlock()
 				return
 			}
 
@@ -181,6 +183,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			log.Debug().Msg("ReadFull completed")
 			if err != nil {
 				log.Error().Err(err).Msg("failed to read layer")
+				pDestConn.mu.Unlock()
 				return
 			}
 
@@ -312,7 +315,8 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 		if inmemData := layerMsg.LayerSrc.InmemData; inmemData != nil && layerMsg.LayerSrc.Meta.Location == InmemLayer {
 			// sends layerData directly
 			if t.isClient {
-				limiter := rate.NewLimiter(rate.Limit(layerMsg.LayerSrc.Meta.LimitRate), layerMsg.LayerSrc.Meta.LimitRate)
+				const BucketSize = 256 * 1024
+				limiter := rate.NewLimiter(rate.Limit(layerMsg.LayerSrc.Meta.LimitRate), BucketSize)
 				// limit speed
 				log.Debug().Uint("layerID", uint(layerMsg.LayerID)).Msgf("sending with limit: %f MiB/s", float64(limiter.Limit())/math.Pow(2, 20))
 				data := *inmemData
@@ -396,6 +400,8 @@ func (t *TcpTransport) getAndUnregisterPipe(layerID LayerID) (*protectedConn, bo
 
 	destID, ok := t.pipes[layerID]
 	if !ok {
+		log.Info().Msgf("pipe not exist for layer %v", layerID)
+		t.mu.Unlock()
 		return nil, false
 	}
 	delete(t.pipes, layerID)
@@ -403,6 +409,7 @@ func (t *TcpTransport) getAndUnregisterPipe(layerID LayerID) (*protectedConn, bo
 	dest, ok := t.addrRegistry[destID]
 	if !ok {
 		log.Error().Msgf("addr of %d does not exist", destID)
+		t.mu.Unlock()
 		return nil, false
 	}
 
