@@ -219,9 +219,9 @@ type LeaderNode struct {
 	status     status
 	// startDistributionChan notifies the start of distribution.
 	startDistributionChan chan Assignment
-	fetchChan             map[LayerID]chan LayerSrc
-	readyChan             chan Assignment
-	mu                    sync.RWMutex
+	// fetchChan             map[LayerID]chan LayerSrc
+	readyChan chan Assignment
+	mu        sync.RWMutex
 }
 
 func newLeaderNodeBase(node node, layers Layers, assignment Assignment) *LeaderNode {
@@ -231,8 +231,8 @@ func newLeaderNodeBase(node node, layers Layers, assignment Assignment) *LeaderN
 		assignment:            assignment,
 		status:                make(status, len(assignment)),
 		startDistributionChan: make(chan Assignment),
-		fetchChan:             make(map[LayerID]chan LayerSrc),
-		readyChan:             make(chan Assignment),
+		// fetchChan:             make(map[LayerID]chan LayerSrc),
+		readyChan: make(chan Assignment),
 	}
 
 	// only send keys of the map
@@ -338,43 +338,25 @@ func (leader *LeaderNode) sendLayers() {
 	}
 }
 
-func (leader *LeaderNode) sendLayer(dest NodeID, layerID LayerID, layerSrc LayerSrc) error {
+func (leader *LeaderNode) sendLayer(destID NodeID, layerID LayerID, layerSrc LayerSrc) error {
 	log.Debug().Msgf("sending layer %v", layerID)
 	ls := layerSrc
-	if layerSrc.Meta.Location == ClientLayer {
+	if ls.Meta.Location == ClientLayer {
 		log.Debug().Uint("layer", uint(layerID)).Msg("loading layer from client")
 		// load the layer from the client
-		pLs, err := leader.fetchFromClient(layerID)
-		if err != nil {
-			return err
-		}
-		ls = *pLs
+		return leader.fetchFromClient(layerID, destID)
 	}
-	err := leader.GetTransport().Send(dest, NewLayerMsg(leader.node.GetMyID(), layerID, ls))
+
+	err := leader.GetTransport().Send(destID, NewLayerMsg(leader.node.GetMyID(), layerID, ls))
 	return err
 }
 
-func (leader *LeaderNode) fetchFromClient(layerID LayerID) (*LayerSrc, error) {
-	log.Debug().Uint("layerID", uint(layerID)).Msg("fetching from client")
-	leader.mu.Lock()
-	ch, ok := leader.fetchChan[layerID]
-	if !ok {
-		ch = make(chan LayerSrc)
-		leader.fetchChan[layerID] = ch
-		leader.mu.Unlock()
+func (leader *LeaderNode) fetchFromClient(layerID LayerID, destID NodeID) error {
+	log.Debug().Uint("layerID", uint(layerID)).Msg("ask the client to send the layer")
 
-		err := leader.GetTransport().Send(ClientID, NewClientReqMsg(leader.GetMyID(), layerID, false))
-		if err != nil {
-			return nil, err
-		}
-	}
+	leader.GetTransport().RegisterPipe(layerID, destID)
 
-	ls := <-ch
-	leader.mu.Lock()
-	delete(leader.fetchChan, layerID)
-	leader.mu.Unlock()
-
-	return &ls, nil
+	return leader.GetTransport().Send(ClientID, NewClientReqMsg(leader.GetMyID(), layerID, false))
 }
 
 // handleLayerMsg stores the layer to its memory, and then sends ack to the leader.
@@ -398,9 +380,9 @@ func (leader *LeaderNode) handleLayerMsg(layerMsg *layerMsg) {
 	// store layer
 	leader.layers[layerMsg.LayerID] = layerSrc
 
-	if ch, ok := leader.fetchChan[layerMsg.LayerID]; ok {
-		ch <- layerSrc
-	}
+	// if ch, ok := leader.fetchChan[layerMsg.LayerID]; ok {
+	// 	ch <- layerSrc
+	// }
 
 	// update my status
 	// send ack to leader
@@ -1090,8 +1072,8 @@ type ReceiverNode struct {
 	layers      Layers
 	storagePath string
 	readyChan   chan struct{}
-	fetchChan   map[LayerID]chan LayerSrc
-	mu          sync.RWMutex
+	// fetchChan   map[LayerID]chan LayerSrc
+	mu sync.RWMutex
 }
 
 func newReceiverNodeBase(node node, layers Layers, storagePath string) *ReceiverNode {
@@ -1100,8 +1082,8 @@ func newReceiverNodeBase(node node, layers Layers, storagePath string) *Receiver
 		node:        node,
 		storagePath: storagePath,
 		readyChan:   make(chan struct{}),
-		fetchChan:   make(map[LayerID]chan LayerSrc),
-		layers:      layers,
+		// fetchChan:   make(map[LayerID]chan LayerSrc),
+		layers: layers,
 	}
 }
 
@@ -1130,27 +1112,13 @@ func (receiver *ReceiverNode) handleIncomingMsg() {
 	}()
 }
 
-func (receiver *ReceiverNode) fetchFromClient(layerID LayerID) (*LayerSrc, error) {
-	log.Debug().Uint("layerID", uint(layerID)).Msg("fetching from client")
-	receiver.mu.Lock()
-	ch, ok := receiver.fetchChan[layerID]
-	if !ok {
-		ch = make(chan LayerSrc)
-		receiver.fetchChan[layerID] = ch
-		receiver.mu.Unlock()
+// fetchFromClient fetches a layer from client
+func (receiver *ReceiverNode) fetchFromClient(layerID LayerID, destID NodeID) error {
+	log.Debug().Uint("layerID", uint(layerID)).Msg("ask the client to send the layer")
 
-		err := receiver.GetTransport().Send(ClientID, NewClientReqMsg(receiver.GetMyID(), layerID, false))
-		if err != nil {
-			return nil, err
-		}
-	}
+	receiver.GetTransport().RegisterPipe(layerID, destID)
 
-	ls := <-ch
-	receiver.mu.Lock()
-	delete(receiver.fetchChan, layerID)
-	receiver.mu.Unlock()
-
-	return &ls, nil
+	return receiver.GetTransport().Send(ClientID, NewClientReqMsg(receiver.GetMyID(), layerID, false))
 }
 
 // handleLayerMsg stores the layer to its memory, and then sends ack to the leader.
@@ -1174,9 +1142,9 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	// store layer
 	receiver.layers[layerMsg.LayerID] = layerSrc
 
-	if ch, ok := receiver.fetchChan[layerMsg.LayerID]; ok {
-		ch <- layerSrc
-	}
+	// if ch, ok := receiver.fetchChan[layerMsg.LayerID]; ok {
+	// 	ch <- layerSrc
+	// }
 
 	// send ack to leader
 	ackMsg := NewAckMsg(receiver.node.GetMyID(), layerMsg.LayerID, layerSrc.Meta.Location)
@@ -1267,11 +1235,7 @@ func (rReceiver *RetransmitReceiverNode) handleRetransmitMsg(retransmitMsg *retr
 	if ls.Meta.Location == ClientLayer {
 		log.Debug().Uint("layer", uint(retransmitMsg.LayerID)).Msg("loading layer from client")
 		// load the layer from the client
-		pLs, err := rReceiver.fetchFromClient(retransmitMsg.LayerID)
-		if err != nil {
-			return err
-		}
-		ls = *pLs
+		return rReceiver.fetchFromClient(retransmitMsg.LayerID, retransmitMsg.DestID)
 	}
 
 	// send (retransmit) layer to dest.

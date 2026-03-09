@@ -17,6 +17,7 @@ import (
 
 type Transport interface {
 	Send(destID NodeID, message Message) error
+	RegisterPipe(layerID LayerID, destID NodeID) error
 	Broadcast(message Message) error
 	Deliver() <-chan Message
 	GetAddress() string
@@ -31,6 +32,9 @@ type TcpTransport struct {
 	conns           map[string]*protectedConn
 	isClient        bool
 	addrRegistry    AddrRegistry
+
+	// pipes stores the nodes which needs transmitting a layer in the client
+	pipes map[LayerID]NodeID
 
 	mu sync.RWMutex
 }
@@ -57,6 +61,7 @@ func NewTcpTransport(addr string, bufSize uint, addrRegistory AddrRegistry, isCl
 		conns:           make(map[string]*protectedConn),
 		isClient:        isClient,
 		addrRegistry:    addrRegistory,
+		pipes:           make(map[LayerID]NodeID),
 	}
 
 	// start listening
@@ -114,24 +119,64 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 				return
 			}
 
-			// then loads layer
-			data := make(LayerData, temp.LayerSize)
-			_, err = io.ReadFull(io.MultiReader(d.Buffered(), conn), data)
-			if err != nil {
-				log.Error().Err(err).Msg("failed to read layer")
-				return
+			// if pipe exists, the layer should be piped at the same time
+			if pDestConn, ok := t.getAndUnregisterPipe(temp.LayerID); ok {
+				pDestConn.mu.Lock()
+				defer pDestConn.mu.Unlock()
+
+				destConn := pDestConn.conn
+
+				// todo: srcID should be modified accordingly; currently it is the original sender of the layer
+				pipeTemp := temp
+
+				// sends header first
+
+				marshaledHdr, err := json.Marshal(pipeTemp)
+				if err != nil {
+					log.Error().Err(err).Msgf("failed to pipe the layer %v", pipeTemp.LayerID)
+				}
+				transportMsg := TransportMsg{
+					Type: m.Type,
+					// todo: src should be modified accordingly; currently it is the original sender of the layer
+					Src:     m.Src,
+					Payload: marshaledHdr,
+				}
+				marshaledTransportHdr, err := json.Marshal(transportMsg)
+				if err != nil {
+					log.Error().Err(err).Send()
+				}
+
+				_, err = destConn.Write(marshaledTransportHdr)
+				if err != nil {
+					log.Error().Err(err).Send()
+
+				}
+
+				// then receive from conn & pipe the layer into destConn at the same time
+				buf := make(LayerData, pipeTemp.LayerSize)
+				tee := io.TeeReader(io.MultiReader(d.Buffered(), conn), destConn)
+				io.ReadFull(tee, buf)
+
+			} else {
+				// then loads layer
+				buf := make(LayerData, temp.LayerSize)
+				_, err = io.ReadFull(io.MultiReader(d.Buffered(), conn), buf)
+				if err != nil {
+					log.Error().Err(err).Msg("failed to read layer")
+					return
+				}
+
+				// moves the decoder
+				d = json.NewDecoder(conn)
+
+				// fixme: currently, always loads the layer to memory.
+				layerSrc := LayerSrc{&buf, "", len(buf), 0, LayerMeta{
+					Location: InmemLayer,
+				}}
+
+				t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc}
+				continue
 			}
-
-			// moves the decoder
-			d = json.NewDecoder(conn)
-
-			// fixme: currently, always loads the layer to memory.
-			layerSrc := LayerSrc{&data, "", len(data), 0, LayerMeta{
-				Location: InmemLayer,
-			}}
-
-			t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc}
-			continue
 		}
 
 		// notifies the message to upper layer, removing transportMsg part
@@ -316,6 +361,42 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 
 		return nil
 	}
+}
+
+// RegisterPipe registers a node which requires a layer in the client.
+func (t *TcpTransport) RegisterPipe(layerID LayerID, destID NodeID) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, ok := t.pipes[layerID]; !ok {
+		t.pipes[layerID] = destID
+		return nil
+	} else {
+		return fmt.Errorf("pipe already registered")
+	}
+}
+
+func (t *TcpTransport) getAndUnregisterPipe(layerID LayerID) (*protectedConn, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	destID, ok := t.pipes[layerID]
+	if !ok {
+		return nil, false
+	}
+	delete(t.pipes, layerID)
+
+	dest, ok := t.addrRegistry[destID]
+	if !ok {
+		log.Error().Msgf("addr of %d does not exist", destID)
+		return nil, false
+	}
+	conn, err := t.getOrConnect(dest)
+	if err != nil {
+		log.Error().Err(err).Send()
+		return nil, false
+	}
+
+	return conn, true
 }
 
 func (t *TcpTransport) Deliver() <-chan Message {
