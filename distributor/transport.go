@@ -430,7 +430,13 @@ type InmemoryTransport struct {
 	addr            string
 	incomingMsgChan chan Message
 	peers           map[string]*InmemoryTransport
-	mu              sync.RWMutex
+	addrRegistry    AddrRegistry
+	isClient        bool
+
+	// pipes stores the nodes which needs transmitting a layer in the client
+	pipes map[LayerID]NodeID
+
+	mu sync.RWMutex
 }
 
 var (
@@ -440,11 +446,14 @@ var (
 )
 
 // creates an instance of InmemoryTransport
-func NewInmemTransport(addr string, bufSize uint) *InmemoryTransport {
+func NewInmemTransport(addr string, bufSize uint, addrRegistry AddrRegistry, isClient bool) *InmemoryTransport {
 	t := &InmemoryTransport{
 		addr:            addr,
 		incomingMsgChan: make(chan Message, bufSize),
 		peers:           make(map[string]*InmemoryTransport),
+		addrRegistry:    addrRegistry,
+		isClient:        isClient,
+		pipes:           make(map[LayerID]NodeID),
 	}
 	t.peers[addr] = t
 
@@ -465,7 +474,14 @@ func (t *InmemoryTransport) AddPeer(newPeer *InmemoryTransport) {
 
 func (t *InmemoryTransport) Send(destID NodeID, message Message) error {
 	// send message to a dest's incomingMessage channel
-	dest := fmt.Sprint(destID)
+	t.mu.RLock()
+	dest, ok := t.addrRegistry[destID]
+	t.mu.RUnlock()
+
+	if !ok {
+		dest = fmt.Sprint(destID)
+	}
+
 	t.mu.RLock()
 	destTransport, ok := t.peers[dest]
 	t.mu.RUnlock()
@@ -518,6 +534,18 @@ func (t *InmemoryTransport) Broadcast(message Message) error {
 	}
 
 	return nil
+}
+
+// RegisterPipe registers a node which requires a layer in the client.
+func (t *InmemoryTransport) RegisterPipe(layerID LayerID, destID NodeID) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, ok := t.pipes[layerID]; !ok {
+		t.pipes[layerID] = destID
+		return nil
+	} else {
+		return fmt.Errorf("pipe already registered")
+	}
 }
 
 // returns chan to receive messages

@@ -172,10 +172,14 @@ func TestSimpleDistribution(t *testing.T) {
 	assignment := createSimpleAssignment(NumReceivers, LeaderNodeID)
 
 	t.Run("inmem", func(t *testing.T) {
+		addrs := make(distributor.AddrRegistry, NumPeers)
+		for i := range NumPeers {
+			addrs[distributor.NodeID(i+LeaderNodeID)] = fmt.Sprint(LeaderNodeID + i)
+		}
 
 		transports := make([]distributor.Transport, NumPeers)
 		for i := range NumPeers {
-			transports[i] = distributor.NewInmemTransport(fmt.Sprint(LeaderNodeID+i), NumPeers)
+			transports[i] = distributor.NewInmemTransport(fmt.Sprint(LeaderNodeID+i), uint(NumPeers), addrs, false)
 		}
 
 		leader, receivers := createLeaderAndEmptyReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers)

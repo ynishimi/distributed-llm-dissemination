@@ -33,8 +33,12 @@ func TestTransportSendSingle(t *testing.T) {
 	}
 
 	t.Run("inmem", func(t *testing.T) {
-		p1 := distributor.NewInmemTransport(fmt.Sprint(peer1ID), NumPeer)
-		p2 := distributor.NewInmemTransport(fmt.Sprint(peer2ID), NumPeer)
+		addrs := distributor.AddrRegistry{
+			peer1ID: fmt.Sprint(peer1ID),
+			peer2ID: fmt.Sprint(peer2ID),
+		}
+		p1 := distributor.NewInmemTransport(fmt.Sprint(peer1ID), NumPeer, addrs, false)
+		p2 := distributor.NewInmemTransport(fmt.Sprint(peer2ID), NumPeer, addrs, false)
 		t.Cleanup(func() {
 			p1.Close()
 			p2.Close()
@@ -99,8 +103,12 @@ func TestInmemoryTransportSendThree(t *testing.T) {
 	}
 
 	t.Run("inmem", func(t *testing.T) {
-		p1 := distributor.NewInmemTransport(fmt.Sprint(peer1ID), NumPeer)
-		p2 := distributor.NewInmemTransport(fmt.Sprint(peer2ID), NumPeer)
+		addrs := distributor.AddrRegistry{
+			peer1ID: fmt.Sprint(peer1ID),
+			peer2ID: fmt.Sprint(peer2ID),
+		}
+		p1 := distributor.NewInmemTransport(fmt.Sprint(peer1ID), NumPeer, addrs, false)
+		p2 := distributor.NewInmemTransport(fmt.Sprint(peer2ID), NumPeer, addrs, false)
 		t.Cleanup(func() {
 			p1.Close()
 			p2.Close()
@@ -152,8 +160,12 @@ func TestInmemoryTransportBroadcastSingle(t *testing.T) {
 	}
 
 	t.Run("inmem", func(t *testing.T) {
-		p1 := distributor.NewInmemTransport(fmt.Sprint(peer1ID), NumPeer)
-		p2 := distributor.NewInmemTransport(fmt.Sprint(peer2ID), NumPeer)
+		addrs := distributor.AddrRegistry{
+			peer1ID: fmt.Sprint(peer1ID),
+			peer2ID: fmt.Sprint(peer2ID),
+		}
+		p1 := distributor.NewInmemTransport(fmt.Sprint(peer1ID), NumPeer, addrs, false)
+		p2 := distributor.NewInmemTransport(fmt.Sprint(peer2ID), NumPeer, addrs, false)
 		t.Cleanup(func() {
 			p1.Close()
 			p2.Close()
