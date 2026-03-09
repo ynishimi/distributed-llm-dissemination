@@ -109,86 +109,102 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			return
 		}
 
-		if m.Type == MsgTypeLayer {
-			// receive layer in binary
-			// loads header at first
-			var temp tempLayerInfo
-			err := json.Unmarshal(m.Payload, &temp)
+		if m.Type != MsgTypeLayer {
+			// notifies the message to upper layer, removing transportMsg part
+			msg, err := decodeMsg(m)
 			if err != nil {
-				log.Error().Err(err).Msg("failed to decode TransportMsg(MsgTypeLayer)")
+				log.Error().Err(err).Msg("failed to decode TransportMsg")
 				return
 			}
 
-			// if pipe exists, the layer should be piped at the same time
-			if pDestConn, ok := t.getAndUnregisterPipe(temp.LayerID); ok {
-				pDestConn.mu.Lock()
-				defer pDestConn.mu.Unlock()
+			t.incomingMsgChan <- msg
 
-				destConn := pDestConn.conn
-
-				// todo: srcID should be modified accordingly; currently it is the original sender of the layer
-				pipeTemp := temp
-
-				// sends header first
-
-				marshaledHdr, err := json.Marshal(pipeTemp)
-				if err != nil {
-					log.Error().Err(err).Msgf("failed to pipe the layer %v", pipeTemp.LayerID)
-				}
-				transportMsg := TransportMsg{
-					Type: m.Type,
-					// todo: src should be modified accordingly; currently it is the original sender of the layer
-					Src:     m.Src,
-					Payload: marshaledHdr,
-				}
-				marshaledTransportHdr, err := json.Marshal(transportMsg)
-				if err != nil {
-					log.Error().Err(err).Send()
-				}
-
-				_, err = destConn.Write(marshaledTransportHdr)
-				if err != nil {
-					log.Error().Err(err).Send()
-
-				}
-
-				// then receive from conn & pipe the layer into destConn at the same time
-				buf := make(LayerData, pipeTemp.LayerSize)
-				tee := io.TeeReader(io.MultiReader(d.Buffered(), conn), destConn)
-				io.ReadFull(tee, buf)
-
-			} else {
-				// then loads layer
-				buf := make(LayerData, temp.LayerSize)
-				_, err = io.ReadFull(io.MultiReader(d.Buffered(), conn), buf)
-				if err != nil {
-					log.Error().Err(err).Msg("failed to read layer")
-					return
-				}
-
-				// moves the decoder
-				d = json.NewDecoder(conn)
-
-				// fixme: currently, always loads the layer to memory.
-				layerSrc := LayerSrc{&buf, "", len(buf), 0, LayerMeta{
-					Location: InmemLayer,
-				}}
-
-				t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc}
-				continue
-			}
+			continue
 		}
 
-		// notifies the message to upper layer, removing transportMsg part
-		msg, err := decodeMsg(m)
+		// handles MsgTypeLayer
+		log.Debug().Msg("received LayerMsg")
+
+		// receive layer in binary
+		// loads header at first
+		var temp tempLayerInfo
+		var buf LayerData
+
+		err = json.Unmarshal(m.Payload, &temp)
 		if err != nil {
-			log.Error().Err(err).Msg("failed to decode TransportMsg")
+			log.Error().Err(err).Msg("failed to decode TransportMsg(MsgTypeLayer)")
 			return
 		}
 
-		// log.Debug().Msgf("incoming msg: %s", msg.String())
+		// if pipe exists, the layer should be piped at the same time
+		if pDestConn, ok := t.getAndUnregisterPipe(temp.LayerID); ok {
+			log.Debug().Msg("got pipe")
 
-		t.incomingMsgChan <- msg
+			pDestConn.mu.Lock()
+
+			destConn := pDestConn.conn
+
+			// todo: srcID should be modified accordingly; currently it is the original sender of the layer
+			pipeTemp := temp
+
+			// sends header first
+
+			marshaledHdr, err := json.Marshal(pipeTemp)
+			if err != nil {
+				log.Error().Err(err).Msgf("failed to pipe the layer %v", pipeTemp.LayerID)
+			}
+			transportMsg := TransportMsg{
+				Type: m.Type,
+				// todo: src should be modified accordingly; currently it is the original sender of the layer
+				Src:     m.Src,
+				Payload: marshaledHdr,
+			}
+			marshaledTransportHdr, err := json.Marshal(transportMsg)
+			if err != nil {
+				log.Error().Err(err).Send()
+				return
+			}
+
+			_, err = destConn.Write(marshaledTransportHdr)
+			log.Debug().Msg("header written to dest")
+			if err != nil {
+				log.Error().Err(err).Send()
+				return
+			}
+
+			// then receive from conn & pipe the layer into destConn at the same time
+			buf = make(LayerData, pipeTemp.LayerSize)
+			log.Debug().Int("size", pipeTemp.LayerSize).Msg("starting TeeReader ReadFull")
+			tee := io.TeeReader(io.MultiReader(d.Buffered(), conn), destConn)
+			_, err = io.ReadFull(tee, buf)
+			log.Debug().Msg("TeeReader ReadFull completed")
+			log.Debug().Msg("ReadFull completed")
+			if err != nil {
+				log.Error().Err(err).Msg("failed to read layer")
+				return
+			}
+
+			pDestConn.mu.Unlock()
+
+		} else {
+			log.Debug().Msg("no pipe found")
+			// then loads layer
+			buf = make(LayerData, temp.LayerSize)
+			reader := io.MultiReader(d.Buffered(), conn)
+			_, err = io.ReadFull(reader, buf)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to read layer")
+				return
+			}
+		}
+
+		// moves the decoder
+		d = json.NewDecoder(conn)
+
+		// fixme: currently, always loads the layer to memory.
+		layerSrc := LayerSrc{&buf, "", len(buf), 0, LayerMeta{Location: InmemLayer}}
+		t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc}
+
 	}
 }
 
@@ -377,7 +393,6 @@ func (t *TcpTransport) RegisterPipe(layerID LayerID, destID NodeID) error {
 
 func (t *TcpTransport) getAndUnregisterPipe(layerID LayerID) (*protectedConn, bool) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	destID, ok := t.pipes[layerID]
 	if !ok {
@@ -390,6 +405,9 @@ func (t *TcpTransport) getAndUnregisterPipe(layerID LayerID) (*protectedConn, bo
 		log.Error().Msgf("addr of %d does not exist", destID)
 		return nil, false
 	}
+
+	t.mu.Unlock()
+
 	conn, err := t.getOrConnect(dest)
 	if err != nil {
 		log.Error().Err(err).Send()
