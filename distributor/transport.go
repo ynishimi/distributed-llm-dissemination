@@ -47,7 +47,7 @@ type protectedConn struct {
 type tempLayerInfo struct {
 	SrcID     NodeID
 	LayerID   LayerID
-	LayerSize int
+	LayerSize int64
 	// SaveDisk  bool
 }
 
@@ -176,7 +176,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 
 			// then receive from conn & pipe the layer into destConn at the same time
 			buf = make(LayerData, pipeTemp.LayerSize)
-			log.Debug().Int("size", pipeTemp.LayerSize).Msg("starting TeeReader ReadFull")
+			log.Debug().Int64("size", pipeTemp.LayerSize).Msg("starting TeeReader ReadFull")
 			tee := io.TeeReader(io.MultiReader(d.Buffered(), conn), destConn)
 			_, err = io.ReadFull(tee, buf)
 			log.Debug().Msg("TeeReader ReadFull completed")
@@ -205,7 +205,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 		d = json.NewDecoder(conn)
 
 		// fixme: currently, always loads the layer to memory.
-		layerSrc := LayerSrc{&buf, "", len(buf), 0, LayerMeta{Location: InmemLayer}}
+		layerSrc := LayerSrc{&buf, "", int64(len(buf)), 0, LayerMeta{Location: InmemLayer}}
 		t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc}
 
 	}

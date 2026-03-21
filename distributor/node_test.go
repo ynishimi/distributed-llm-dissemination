@@ -71,7 +71,7 @@ func createRetransmitLeaderAndReceivers(transports []distributor.Transport, assi
 	return leader, receivers
 }
 
-func createMockLayers(NumLayers, NumReceivers, LeaderNodeID, layerSize int) *distributor.Layers {
+func createMockLayers(NumLayers, NumReceivers, LeaderNodeID, layerSize int64) *distributor.Layers {
 	// layers which the leader should distribute to receivers
 	layers := make(distributor.Layers, NumLayers)
 	for i := range NumReceivers {

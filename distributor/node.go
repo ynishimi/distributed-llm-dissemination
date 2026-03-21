@@ -131,7 +131,7 @@ type NodeIDs map[NodeID]struct{}
 
 type LayerMeta struct {
 	Location  LayerLocation
-	LimitRate int
+	LimitRate int64
 }
 
 // set of LayerIDs with its location, rate (used for job assignment)
@@ -190,7 +190,7 @@ type LayerSrc struct {
 	// file path of the layer (in disk)
 	Fp string
 	// file Size
-	Size int
+	Size int64
 	// Offset (not used yet)
 	Offset int64
 	// metadata
@@ -369,7 +369,7 @@ func (leader *LeaderNode) handleLayerMsg(layerMsg *layerMsg) {
 	layerSrc = LayerSrc{
 		InmemData: layerMsg.LayerSrc.InmemData,
 		Fp:        "",
-		Size:      len(*layerMsg.LayerSrc.InmemData),
+		Size:      int64(len(*layerMsg.LayerSrc.InmemData)),
 		Offset:    0,
 		Meta: LayerMeta{
 			Location: InmemLayer,
@@ -933,7 +933,7 @@ func (prLeader *PullRetransmitLeaderNode) assignNewJob(node NodeID) error {
 // getMinLoadedSender returns the sender with lowest limit rate, or the one with minimum jobs that has specified layer
 func (prLeader *PullRetransmitLeaderNode) getMinLoadedSender(layerID LayerID) NodeID {
 	var bestSender NodeID
-	var bestRate int
+	var bestRate int64
 	var minCount uint
 
 	minCount = math.MaxUint
@@ -1058,6 +1058,79 @@ func (prLeader *PullRetransmitLeaderNode) getRarestStealableJob(node NodeID) (ra
 	return best.layerID, best.dest, best.sender, true
 }
 
+// FlowRetransmitLeaderNode implements flow-based transmit leader node.
+type FlowRetransmitLeaderNode struct {
+	*RetransmitLeaderNode
+}
+
+func NewFlowRetransmitLeaderNode(node node, layers Layers, assignment Assignment) *FlowRetransmitLeaderNode {
+	rLeaderBase := NewRetransmitLeaderNodeBase(node, layers, assignment)
+
+	prLeader := &FlowRetransmitLeaderNode{
+		RetransmitLeaderNode: rLeaderBase,
+	}
+
+	prLeader.handleIncomingMsg()
+
+	return prLeader
+}
+
+// handle msg
+func (frLeader *FlowRetransmitLeaderNode) handleIncomingMsg() {
+	go func() {
+		for incomingMsg := range frLeader.GetTransport().Deliver() {
+			log.Debug().Msgf("incoming msg[%T]: %s", incomingMsg, incomingMsg)
+			switch v := incomingMsg.(type) {
+			case *announceMsg:
+				go frLeader.handleAnnounceMsg(v)
+			case *ackMsg:
+				go frLeader.handleAckMsg(v)
+			case *layerMsg:
+				go frLeader.handleLayerMsg(v)
+			}
+		}
+	}()
+}
+
+// handleAnnounceMsg registers a peer and starts sending the requested layers.
+// In this case,
+func (frLeader *FlowRetransmitLeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
+
+	frLeader.mu.Lock()
+	// checks if the announcement is already received
+	_, ok := frLeader.status[announceMsg.SrcID]
+
+	if !ok {
+		// initialize the value (map of layers the receiver already has)
+		frLeader.status[announceMsg.SrcID] = announceMsg.LayerIDs
+		// add the receiver as neighbor
+		frLeader.node.addNode(announceMsg.SrcID)
+	}
+	frLeader.mu.Unlock()
+
+	frLeader.mu.RLock()
+	a := frLeader.assignment
+	s := frLeader.status
+	frLeader.mu.RUnlock()
+	// checks if all nodes in the assignment are connected by comparing the keys of assignment and status
+	for nodeID := range a {
+		_, ok := s[nodeID]
+		if !ok {
+			return
+		}
+	}
+
+	// start sending layers
+	frLeader.startDistributionChan <- a
+	frLeader.assignJobs()
+	frLeader.sendLayers()
+}
+
+// assignJobs iterates through the assignment and creates an assignments of jobs.
+func (frLeader *FlowRetransmitLeaderNode) assignJobs() {
+	// frLeader.assignment
+}
+
 // Receiver
 type Receiver interface {
 	// announces its existence (with the layers it has) to leader
@@ -1131,7 +1204,7 @@ func (receiver *ReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 	layerSrc = LayerSrc{
 		InmemData: layerMsg.LayerSrc.InmemData,
 		Fp:        "",
-		Size:      len(*layerMsg.LayerSrc.InmemData),
+		Size:      int64(len(*layerMsg.LayerSrc.InmemData)),
 		Offset:    0,
 		Meta: LayerMeta{
 			Location: InmemLayer,
@@ -1193,12 +1266,18 @@ type RetransmitReceiverNode struct {
 	*ReceiverNode
 }
 
-func NewRetransmitReceiverNode(node node, layers Layers, storagePath string) *RetransmitReceiverNode {
+func NewRetransmitReceiverNodeBase(node node, layers Layers, storagePath string) *RetransmitReceiverNode {
 	receiverBase := newReceiverNodeBase(node, layers, storagePath)
 
 	rReceiverNode := &RetransmitReceiverNode{
 		ReceiverNode: receiverBase,
 	}
+
+	return rReceiverNode
+}
+
+func NewRetransmitReceiverNode(node node, layers Layers, storagePath string) *RetransmitReceiverNode {
+	rReceiverNode := NewRetransmitReceiverNodeBase(node, layers, storagePath)
 
 	rReceiverNode.handleIncomingMsg()
 
@@ -1246,4 +1325,37 @@ func (rReceiver *RetransmitReceiverNode) handleRetransmitMsg(retransmitMsg *retr
 		log.Error().Err(err).Msgf("failed to send layer to %v", retransmitMsg.DestID)
 	}
 	return err
+}
+
+// FlowRetransmitReceiverNode has layer retransmission function.
+type FlowRetransmitReceiverNode struct {
+	*RetransmitReceiverNode
+}
+
+func NewFlowRetransmitReceiverNode(node node, layers Layers, storagePath string) *FlowRetransmitReceiverNode {
+	rReceiverNodeBase := NewRetransmitReceiverNodeBase(node, layers, storagePath)
+
+	rReceiverNode := &FlowRetransmitReceiverNode{rReceiverNodeBase}
+
+	rReceiverNode.handleIncomingMsg()
+
+	return rReceiverNode
+}
+
+// handle msg
+func (frReceiver *FlowRetransmitReceiverNode) handleIncomingMsg() {
+	go func() {
+		for incomingMsg := range frReceiver.GetTransport().Deliver() {
+			log.Debug().Msgf("incoming msg[%T]: %s", incomingMsg, incomingMsg)
+			switch v := incomingMsg.(type) {
+			case *layerMsg:
+				go frReceiver.handleLayerMsg(v)
+			case *retransmitMsg:
+				go frReceiver.handleRetransmitMsg(v)
+			// start the inference engine
+			case *startupMsg:
+				go frReceiver.handleStartupMsg(v)
+			}
+		}
+	}()
 }

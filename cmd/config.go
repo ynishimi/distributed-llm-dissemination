@@ -16,7 +16,7 @@ type config struct {
 	Nodes      []NodeConf
 	Clients    []ClientConf
 	Assignment distributor.Assignment
-	LayerSize  int
+	LayerSize  int64
 }
 
 type NodeConf struct {
@@ -27,7 +27,7 @@ type NodeConf struct {
 }
 
 // set of LayerIDs for clients
-type LayerIDsRateLimit map[distributor.LayerID]int
+type LayerIDsRateLimit map[distributor.LayerID]int64
 
 type ClientConf struct {
 	ID              distributor.NodeID
@@ -82,7 +82,7 @@ func GetClientConf(conf *config, node distributor.NodeID) (*ClientConf, error) {
 	return nil, fmt.Errorf("no client found")
 }
 
-func CreateLayers(myConf NodeConf, layerSize int, saveDisk bool) distributor.Layers {
+func CreateLayers(myConf NodeConf, layerSize int64, saveDisk bool) distributor.Layers {
 	layers := make(distributor.Layers)
 
 	for layerID := range myConf.InitialLayers {
@@ -98,7 +98,7 @@ func CreateLayers(myConf NodeConf, layerSize int, saveDisk bool) distributor.Lay
 	return layers
 }
 
-func AddClientLayers(clientConf *ClientConf, layerSize int, layers distributor.Layers) distributor.Layers {
+func AddClientLayers(clientConf *ClientConf, layerSize int64, layers distributor.Layers) distributor.Layers {
 	for layerID, limitRate := range clientConf.LayersRateLimit {
 		if _, ok := layers[layerID]; ok {
 			// already in memory/disk
@@ -112,7 +112,7 @@ func AddClientLayers(clientConf *ClientConf, layerSize int, layers distributor.L
 	return layers
 }
 
-func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layerSize int, storagePath string) distributor.LayerSrc {
+func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layerSize int64, storagePath string) distributor.LayerSrc {
 	// save as myID/layerID.layer
 	dir := filepath.Join(storagePath, "layers/", fmt.Sprintf("%d", myID))
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -138,7 +138,7 @@ func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layer
 	}
 }
 
-func CreateInmemLayer(layerID distributor.LayerID, layerSize int) distributor.LayerSrc {
+func CreateInmemLayer(layerID distributor.LayerID, layerSize int64) distributor.LayerSrc {
 	// add dummy data in memory
 	layerData := distributor.LayerData(make([]byte, layerSize))
 	return distributor.LayerSrc{
@@ -153,7 +153,7 @@ func CreateInmemLayer(layerID distributor.LayerID, layerSize int) distributor.La
 }
 
 // CreateClientLayer creates layers with rate limit.
-func CreateClientLayer(layerID distributor.LayerID, layerSize int, limitRate int) distributor.LayerSrc {
+func CreateClientLayer(layerID distributor.LayerID, layerSize int64, limitRate int64) distributor.LayerSrc {
 	layerSrc := CreateInmemLayer(layerID, layerSize)
 	layerSrc.Meta = distributor.LayerMeta{
 		// the layer is stored in memory of the client
@@ -161,12 +161,12 @@ func CreateClientLayer(layerID distributor.LayerID, layerSize int, limitRate int
 		LimitRate: limitRate,
 	}
 
-	log.Debug().Int("limitRate", limitRate).Send()
+	log.Debug().Int64("limitRate", limitRate).Send()
 	return layerSrc
 }
 
 // CreateClientLayerInfo creates layerSrc information remembered by the node.
-func CreateClientLayerInfo(layerID distributor.LayerID, layerSize int, limitRate int) distributor.LayerSrc {
+func CreateClientLayerInfo(layerID distributor.LayerID, layerSize int64, limitRate int64) distributor.LayerSrc {
 	return distributor.LayerSrc{
 		InmemData: nil,
 		Fp:        "",
@@ -231,7 +231,7 @@ func PrintJsonExample() {
 		Nodes:      ncs,
 		Assignment: a,
 		// 2 GiB per layer (65 GiB/32 layers ~ 2)
-		LayerSize: 1 * int(math.Pow(2, 30)),
+		LayerSize: 1 * int64(math.Pow(2, 30)),
 	}
 
 	b, _ := json.Marshal(c)
