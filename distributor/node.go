@@ -1061,13 +1061,27 @@ func (prLeader *PullRetransmitLeaderNode) getRarestStealableJob(node NodeID) (ra
 // FlowRetransmitLeaderNode implements flow-based transmit leader node.
 type FlowRetransmitLeaderNode struct {
 	*RetransmitLeaderNode
+	LayerDests map[LayerID]NodeID // caution: only one dest is accepted in this implementaion!
 }
 
 func NewFlowRetransmitLeaderNode(node node, layers Layers, assignment Assignment) *FlowRetransmitLeaderNode {
 	rLeaderBase := NewRetransmitLeaderNodeBase(node, layers, assignment)
 
+	// initialize layerDests
+	layerDests := make(map[LayerID]NodeID)
+	for destID, layerIDs := range assignment {
+		for layerID := range layerIDs {
+			if _, ok := layerDests[layerID]; !ok {
+				layerDests[layerID] = destID
+			} else {
+				log.Error().Uint("layerID", uint(layerID)).Msg("a layer assigned to multiple layers")
+			}
+		}
+	}
+
 	prLeader := &FlowRetransmitLeaderNode{
 		RetransmitLeaderNode: rLeaderBase,
+		LayerDests:           layerDests,
 	}
 
 	prLeader.handleIncomingMsg()
@@ -1085,6 +1099,8 @@ func (frLeader *FlowRetransmitLeaderNode) handleIncomingMsg() {
 				go frLeader.handleAnnounceMsg(v)
 			case *ackMsg:
 				go frLeader.handleAckMsg(v)
+			case *flowRetransmitMsg:
+				go frLeader.handleFlowRetransmitMsg(v)
 			case *layerMsg:
 				go frLeader.handleLayerMsg(v)
 			}
@@ -1122,13 +1138,94 @@ func (frLeader *FlowRetransmitLeaderNode) handleAnnounceMsg(announceMsg *announc
 
 	// start sending layers
 	frLeader.startDistributionChan <- a
-	frLeader.assignJobs()
-	frLeader.sendLayers()
+	jobsMap := frLeader.assignJobs()
+	frLeader.sendLayers(jobsMap)
+}
+
+func (frLeader *FlowRetransmitLeaderNode) handleFlowRetransmitMsg(frMsg *flowRetransmitMsg) error {
+	// upon getting frMsg, it starts sending a (part of) layer
+
+	frLeader.mu.RLock()
+	ls := frLeader.layers[frMsg.LayerID]
+	frLeader.mu.RUnlock()
+
+	// add the destination node to the routing table and connect to it
+	frLeader.addNode(frMsg.DestID)
+
+	if ls.Meta.Location == ClientLayer {
+		log.Debug().Uint("layer", uint(frMsg.LayerID)).Msg("loading layer from client")
+		// load the layer from the client
+		return frLeader.fetchFromClient(frMsg.LayerID, frMsg.DestID)
+	}
+
+	// send (retransmit) layer to dest.
+	// the layer should be stored in memory
+
+	// TODO: send a part of layer
+	layerMsg := NewLayerMsg(frLeader.GetMyID(), frMsg.LayerID, ls)
+	err := frLeader.GetTransport().Send(frMsg.DestID, layerMsg)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to send layer to %v", frMsg.DestID)
+	}
+	return err
+
+}
+
+// todo: fetch a partial layer from a client
+func (frLeader *FlowRetransmitLeaderNode) fetchFromClient(layerID LayerID, destID NodeID) error {
+
+	// log.Debug().Uint("layerID", uint(layerID)).Msg("ask the client to send the layer")
+
+	// leader.GetTransport().RegisterPipe(layerID, destID)
+
+	// return leader.GetTransport().Send(ClientID, NewClientReqMsg(leader.GetMyID(), layerID, false))
 }
 
 // assignJobs iterates through the assignment and creates an assignments of jobs.
-func (frLeader *FlowRetransmitLeaderNode) assignJobs() {
-	// frLeader.assignment
+func (frLeader *FlowRetransmitLeaderNode) assignJobs() flowJobInfosMap {
+	g := frLeader.newFlowGraph()
+	jobsMap := g.getJobAssignment()
+
+	return jobsMap
+}
+
+// This time, the leader node dispatches jobs using flowJobsMap.
+func (frLeader *FlowRetransmitLeaderNode) sendLayers(jobsMap flowJobInfosMap) {
+	// for each sender, assign jobs from jobInfos slice
+	for _, jobInfos := range jobsMap {
+		for _, jobInfo := range jobInfos {
+			err := frLeader.dispatchJob(jobInfo)
+
+			if err != nil {
+				log.Error().Err(err).Msgf("couldn't send retransmit of %v to owner %v", jobInfo.layerID, frLeader.LayerDests[jobInfo.layerID])
+			}
+		}
+	}
+}
+
+func (frLeader *FlowRetransmitLeaderNode) dispatchJob(job flowJobInfo) error {
+	log.Debug().Msgf("dispatching a job %v", job)
+
+	dest, ok := frLeader.LayerDests[job.layerID]
+	if !ok {
+		return fmt.Errorf("receiver not found: %v", job)
+	}
+
+	// if job.senderID == frLeader.GetMyID() {
+	// 	// if the owner is the leader itself, the owner directly sends the layerSrc to dest's memory
+	// 	layerSrc, ok := frLeader.layers[job.layerID]
+	// 	if !ok {
+	// 		log.Warn().Msgf("no layers found for layerID:%v", job.layerID)
+	// 	}
+	// 	return frLeader.sendLayer(dest, job.layerID, layerSrc)
+	// }
+
+	// TODO: adjustable offset
+	const Offset = 0
+	frMsg := NewFlowRetransmitMsg(frLeader.node.GetMyID(), job.layerID, dest, job.dataSize, Offset)
+	// yet the transmitMsg itself is sent to the owner, not the dest of the layer.
+	err := frLeader.GetTransport().Send(dest, frMsg)
+	return err
 }
 
 // Receiver
@@ -1350,12 +1447,17 @@ func (frReceiver *FlowRetransmitReceiverNode) handleIncomingMsg() {
 			switch v := incomingMsg.(type) {
 			case *layerMsg:
 				go frReceiver.handleLayerMsg(v)
-			case *retransmitMsg:
-				go frReceiver.handleRetransmitMsg(v)
+			case *flowRetransmitMsg:
+				go frReceiver.handleFlowRetransmitMsg(v)
 			// start the inference engine
 			case *startupMsg:
 				go frReceiver.handleStartupMsg(v)
 			}
 		}
 	}()
+}
+
+func (frReceiver *FlowRetransmitReceiverNode) handleFlowRetransmitMsg(frMsg *flowRetransmitMsg) {
+	// upon getting frMsg, it starts sending a (part of) layer
+
 }

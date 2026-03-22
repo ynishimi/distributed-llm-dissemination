@@ -1,6 +1,7 @@
 package distributor
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/rs/zerolog/log"
@@ -28,6 +29,10 @@ type flowJobInfo struct {
 	dataSize int64
 }
 
+func (job *flowJobInfo) String() string {
+	return fmt.Sprintf("s%d -> (l%d: %dB)", job.senderID, job.layerID, job.dataSize)
+}
+
 type flowJobInfosMap map[NodeID][]flowJobInfo
 
 type flowGraph struct {
@@ -41,11 +46,11 @@ type flowGraph struct {
 	maxFlow            int64
 }
 
-func (frLeader *FlowRetransmitLeaderNode) newFlowGraph(assignment Assignment, status status, layers Layers) *flowGraph {
+func (frLeader *FlowRetransmitLeaderNode) newFlowGraph() *flowGraph {
 	// counts num of assignmentLayerIDs across the assignment
 	assignmentLayerIDs := make(LayerIDs)
 
-	for _, layerIDs := range assignment {
+	for _, layerIDs := range frLeader.assignment {
 		for layerID := range layerIDs {
 			if meta, ok := assignmentLayerIDs[layerID]; !ok {
 				assignmentLayerIDs[layerID] = meta
@@ -74,19 +79,17 @@ func (frLeader *FlowRetransmitLeaderNode) newFlowGraph(assignment Assignment, st
 	addIndex(src)
 
 	// 2. sender to layer
+	for nodeID := range frLeader.status {
+		sender := flowNode{kind: kindSender, nodeID: nodeID}
+		addIndex(sender)
+	}
 	for layerID := range assignmentLayerIDs {
 		layer := flowNode{kind: kindLayer, layerID: layerID}
 		addIndex(layer)
 	}
-	// for _, layerIDs := range status {
-	// 	for layerID := range layerIDs {
-	// 		layer := flowNode{kind: kindLayer, layerID: layerID}
-	// 		addIndex(layer)
-	// 	}
-	// }
 
 	// 3. layer to receiver
-	for nodeID := range assignment {
+	for nodeID := range frLeader.assignment {
 		receiver := flowNode{kind: kindReceiver, nodeID: nodeID}
 		addIndex(receiver)
 	}
@@ -96,9 +99,9 @@ func (frLeader *FlowRetransmitLeaderNode) newFlowGraph(assignment Assignment, st
 
 	g := flowGraph{
 		adjMatrix:          make([][]int64, numVertex),
-		assignment:         assignment,
-		status:             status,
-		layers:             layers,
+		assignment:         frLeader.assignment,
+		status:             frLeader.status,
+		layers:             frLeader.layers,
 		assignmentLayerIDs: assignmentLayerIDs,
 		idx:                idx,
 		numVertex:          numVertex,
@@ -106,6 +109,63 @@ func (frLeader *FlowRetransmitLeaderNode) newFlowGraph(assignment Assignment, st
 	}
 
 	return &g
+}
+
+func (g *flowGraph) getJobAssignment() flowJobInfosMap {
+	requiredFlow := int64(0)
+
+	for layerID := range g.assignmentLayerIDs {
+		requiredFlow += g.layers[layerID].Size
+	}
+
+	// first, attain the upper bound of execution time
+	tUpper := int64(1)
+	for {
+		maxFlow := g.updateMaxFlow(tUpper)
+		if maxFlow >= requiredFlow {
+			break
+		}
+		tUpper *= 2
+	}
+
+	// find the minimum time by bisect
+	l := int64(1)
+	r := tUpper
+
+	t := tUpper
+
+	for l <= r {
+		m := l + (r-l)/2
+		if maxFlow := g.updateMaxFlow(m); maxFlow < requiredFlow {
+			// l too small, look for a longer time
+			l = m + 1
+		} else {
+			// update the value with the new flow (=time)
+			t = min(t, maxFlow)
+			// r too big, look for a shorter time
+			r = m - 1
+		}
+	}
+
+	// t is the value we want to get; update the flow with the obtained time t.
+	g.updateMaxFlow(t)
+
+	// todo: creates type flowJobInfosMap map[NodeID][]flowJobInfo
+	flowJobs := make(flowJobInfosMap)
+
+	for senderID, layerIDs := range g.status {
+		for layerID := range layerIDs {
+			sender := flowNode{kind: kindSender, nodeID: senderID}
+			layer := flowNode{kind: kindLayer, layerID: layerID}
+			flow := g.adjMatrix[g.idx[sender]][g.idx[layer]]
+			if flow > 0 {
+				flowJob := flowJobInfo{senderID, layerID, flow}
+				flowJobs[senderID] = append(flowJobs[senderID], flowJob)
+			}
+		}
+	}
+
+	return flowJobs
 }
 
 func (g *flowGraph) buildEdgeCapacity(time int64) {
@@ -213,47 +273,4 @@ func (g *flowGraph) updateMaxFlow(time int64) (maxFlow int64) {
 			v = parent[v]
 		}
 	}
-}
-
-func (g *flowGraph) getJobAssignment() {
-	requiredFlow := int64(0)
-
-	for layerID := range g.assignmentLayerIDs {
-		requiredFlow += g.layers[layerID].Size
-	}
-
-	// first, attain the upper bound of execution time
-	tUpper := int64(1)
-	for {
-		maxFlow := g.updateMaxFlow(tUpper)
-		if maxFlow >= requiredFlow {
-			break
-		}
-		tUpper *= 2
-	}
-
-	// find the minimum time by bisect
-	l := int64(1)
-	r := tUpper
-
-	t := tUpper
-
-	for l <= r {
-		m := l + (r-l)/2
-		if maxFlow := g.updateMaxFlow(m); maxFlow < requiredFlow {
-			// l too small, look for a longer time
-			l = m + 1
-		} else {
-			// update the value with the new flow (=time)
-			t = min(t, maxFlow)
-			// r too big, look for a shorter time
-			r = m - 1
-		}
-	}
-
-	// t is the value we want to get; update the flow with the obtained time t.
-	g.updateMaxFlow(t)
-
-	// todo: creates type flowJobInfosMap map[NodeID][]flowJobInfo
-
 }

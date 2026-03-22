@@ -20,6 +20,7 @@ const (
 	MsgTypeAck
 	MsgTypeLayer
 	MsgTypeRetransmit
+	MsgTypeFlowRetransmit
 	MsgTypeClientReq
 	MsgTypeStartup
 	MsgTypeSimple
@@ -113,7 +114,38 @@ func (m *retransmitMsg) Type() MsgType {
 }
 
 func (m *retransmitMsg) String() string {
-	return fmt.Sprintf("from %v: layer %v, to %v", m.SrcID, m.LayerID, m.DestID)
+	return fmt.Sprintf("from %v: layer %v, to %v, ", m.SrcID, m.LayerID, m.DestID)
+}
+
+// flowRetransmitMsg
+type flowRetransmitMsg struct {
+	SrcID    NodeID
+	LayerID  LayerID
+	DestID   NodeID
+	DataSize int64
+	Offset   int64
+}
+
+func NewFlowRetransmitMsg(src NodeID, layerID LayerID, destID NodeID, dataSize int64, offset int64) *flowRetransmitMsg {
+	return &flowRetransmitMsg{
+		SrcID:    src,
+		LayerID:  layerID,
+		DestID:   destID,
+		DataSize: dataSize,
+		Offset:   offset,
+	}
+}
+
+func (m *flowRetransmitMsg) Src() string {
+	return fmt.Sprint(m.SrcID)
+}
+
+func (m *flowRetransmitMsg) Type() MsgType {
+	return MsgTypeFlowRetransmit
+}
+
+func (m *flowRetransmitMsg) String() string {
+	return fmt.Sprintf("from %v: layer %v, to %v, size: %d, offset: %d", m.SrcID, m.LayerID, m.DestID, m.DataSize, m.Offset)
 }
 
 // layerMsg
@@ -251,6 +283,8 @@ func decodeMsg(m TransportMsg) (Message, error) {
 	// 	return unmarshalRawMsg[*layerMsg](m.Payload)
 	case MsgTypeRetransmit:
 		return unmarshalRawMsg[*retransmitMsg](m.Payload)
+	case MsgTypeFlowRetransmit:
+		return unmarshalRawMsg[*flowRetransmitMsg](m.Payload)
 	case MsgTypeClientReq:
 		return unmarshalRawMsg[*clientReqMsg](m.Payload)
 	case MsgTypeStartup:
