@@ -130,7 +130,7 @@ func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layer
 	return distributor.LayerSrc{
 		InmemData: nil,
 		Fp:        path,
-		Size:      layerSize,
+		DataSize:  layerSize,
 		Offset:    0,
 		Meta: distributor.LayerMeta{
 			Location: distributor.DiskLayer,
@@ -144,7 +144,7 @@ func CreateInmemLayer(layerID distributor.LayerID, layerSize int64) distributor.
 	return distributor.LayerSrc{
 		InmemData: &layerData,
 		Fp:        "",
-		Size:      layerSize,
+		DataSize:  layerSize,
 		Offset:    0,
 		Meta: distributor.LayerMeta{
 			Location: distributor.InmemLayer,
@@ -170,7 +170,7 @@ func CreateClientLayerInfo(layerID distributor.LayerID, layerSize int64, limitRa
 	return distributor.LayerSrc{
 		InmemData: nil,
 		Fp:        "",
-		Size:      layerSize,
+		DataSize:  layerSize,
 		Offset:    0,
 		Meta: distributor.LayerMeta{
 			Location:  distributor.ClientLayer,

@@ -150,9 +150,10 @@ func (m *flowRetransmitMsg) String() string {
 
 // layerMsg
 type layerMsg struct {
-	SrcID    NodeID
-	LayerID  LayerID
-	LayerSrc LayerSrc
+	SrcID     NodeID
+	LayerID   LayerID
+	LayerSrc  LayerSrc
+	TotalSize int64
 	// SaveDisk stores the flag of if the layer is saved in the disk or not
 	// SaveDisk bool
 	// limitRate int

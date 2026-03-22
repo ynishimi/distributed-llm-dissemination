@@ -80,7 +80,7 @@ func createMockLayers(NumLayers, NumReceivers, LeaderNodeID, layerSize int64) *d
 		layerSrc := distributor.LayerSrc{
 			InmemData: &layerData,
 			Fp:        "",
-			Size:      layerSize,
+			DataSize:  layerSize,
 			Offset:    0,
 		}
 

@@ -48,6 +48,7 @@ type tempLayerInfo struct {
 	SrcID     NodeID
 	LayerID   LayerID
 	LayerSize int64
+	TotalSize int64
 	// SaveDisk  bool
 }
 
@@ -206,7 +207,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 
 		// fixme: currently, always loads the layer to memory.
 		layerSrc := LayerSrc{&buf, "", int64(len(buf)), 0, LayerMeta{Location: InmemLayer}}
-		t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc}
+		t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc, temp.TotalSize}
 
 	}
 }
@@ -290,7 +291,7 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 
 	if layerMsg, ok := message.(*layerMsg); ok {
 		// sends header and layer separately for avoiding unnecesary memory occupation due to decoding
-		header := tempLayerInfo{layerMsg.SrcID, layerMsg.LayerID, layerMsg.LayerSrc.Size}
+		header := tempLayerInfo{layerMsg.SrcID, layerMsg.LayerID, layerMsg.LayerSrc.DataSize, layerMsg.TotalSize}
 
 		// sends header first
 		marshaledHdr, err := json.Marshal(header)
@@ -331,7 +332,10 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 				}
 				log.Debug().Uint("layerID", uint(layerMsg.LayerID)).Msg("completed")
 			} else {
-				_, err = conn.Write(*inmemData)
+				// the node sends a layer to its dest
+				partialData := (*layerMsg.LayerSrc.InmemData)[layerMsg.LayerSrc.Offset : layerMsg.LayerSrc.Offset+layerMsg.LayerSrc.DataSize]
+
+				_, err = conn.Write(partialData)
 				if err != nil {
 					return err
 				}
@@ -348,8 +352,10 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 			}
 			defer f.Close()
 
+			sr := io.NewSectionReader(f, layerMsg.LayerSrc.Offset, layerMsg.LayerSrc.DataSize)
+
 			// directly send file from disk, using sendFile syscall
-			_, err = io.Copy(conn, f)
+			_, err = io.Copy(conn, sr)
 			return err
 		} else {
 			return fmt.Errorf("unknown error sending layer %v", layerMsg.LayerID)
