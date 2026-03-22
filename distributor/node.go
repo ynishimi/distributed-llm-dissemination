@@ -1101,8 +1101,8 @@ func (frleader *FlowRetransmitLeaderNode) handleIncomingMsg() {
 				go frleader.handleAckMsg(v)
 			case *flowRetransmitMsg:
 				go frleader.handleFlowRetransmitMsg(v)
-			case *layerMsg:
-				go frleader.handleLayerMsg(v)
+				// case *layerMsg:
+				// 	go frleader.handleLayerMsg(v)
 			}
 		}
 	}()
@@ -1138,55 +1138,12 @@ func (frleader *FlowRetransmitLeaderNode) handleAnnounceMsg(announceMsg *announc
 
 	// start sending layers
 	frleader.startDistributionChan <- a
-	jobsMap := frleader.assignJobs()
-	frleader.sendLayers(jobsMap)
+	time, jobsMap := frleader.assignJobs()
+	frleader.sendLayers(time, jobsMap)
 }
 
 func (frleader *FlowRetransmitLeaderNode) handleFlowRetransmitMsg(frMsg *flowRetransmitMsg) error {
 	return handleFlowRetransmit(frleader.node, frleader.layers, &frleader.mu, frleader.fetchFromClient, frMsg)
-}
-
-// handleLayerMsg stores the layer to its memory, and then sends ack to the leader.
-func (frleader *FlowRetransmitLeaderNode) handleLayerMsg(layerMsg *layerMsg) {
-	frleader.mu.Lock()
-	defer frleader.mu.Unlock()
-
-	var layerSrc LayerSrc
-
-	layerSrc, ok := frleader.layers[layerMsg.LayerID]
-	if !ok {
-		data := make(LayerData, layerMsg.TotalSize)
-		// initialize layerSrc
-		layerSrc = LayerSrc{
-			InmemData: &data,
-			Fp:        "",
-			DataSize:  0,
-			Offset:    0,
-			Meta: LayerMeta{
-				Location: InmemLayer,
-			},
-		}
-	}
-
-	// save a part of layer
-	layerSrc.DataSize += layerMsg.LayerSrc.DataSize
-	partialData := layerMsg.LayerSrc.InmemData
-	buf := *layerSrc.InmemData
-	copy(buf[layerMsg.LayerSrc.Offset:], *partialData)
-
-	// store layer
-	frleader.layers[layerMsg.LayerID] = layerSrc
-	log.Debug().Msgf("saved layer %v in memory", layerMsg.LayerID)
-
-	// todo: how does the receiver know that the layer has been completely received?
-	if layerSrc.DataSize == layerMsg.TotalSize {
-		// send ack to leader
-		ackMsg := NewAckMsg(frleader.node.GetMyID(), layerMsg.LayerID, layerSrc.Meta.Location)
-		err := frleader.GetTransport().Send(frleader.getLeader(), ackMsg)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to send ackMsg")
-		}
-	}
 }
 
 // // todo: fetch a partial layer from a client
@@ -1200,19 +1157,19 @@ func (frleader *FlowRetransmitLeaderNode) handleLayerMsg(layerMsg *layerMsg) {
 // }
 
 // assignJobs iterates through the assignment and creates an assignments of jobs.
-func (frleader *FlowRetransmitLeaderNode) assignJobs() flowJobInfosMap {
+func (frleader *FlowRetransmitLeaderNode) assignJobs() (int64, flowJobInfosMap) {
 	g := frleader.newFlowGraph()
-	jobsMap := g.getJobAssignment()
+	t, jobsMap := g.getJobAssignment()
 
-	return jobsMap
+	return t, jobsMap
 }
 
 // This time, the leader node dispatches jobs using flowJobsMap.
-func (frleader *FlowRetransmitLeaderNode) sendLayers(jobsMap flowJobInfosMap) {
+func (frleader *FlowRetransmitLeaderNode) sendLayers(time int64, jobsMap flowJobInfosMap) {
 	// for each sender, assign jobs from jobInfos slice
 	for _, jobInfos := range jobsMap {
 		for _, jobInfo := range jobInfos {
-			err := frleader.dispatchJob(jobInfo)
+			err := frleader.dispatchJob(time, jobInfo)
 
 			if err != nil {
 				log.Error().Err(err).Msgf("couldn't send retransmit of %v to owner %v", jobInfo.layerID, frleader.LayerDests[jobInfo.layerID])
@@ -1221,7 +1178,7 @@ func (frleader *FlowRetransmitLeaderNode) sendLayers(jobsMap flowJobInfosMap) {
 	}
 }
 
-func (frleader *FlowRetransmitLeaderNode) dispatchJob(job flowJobInfo) error {
+func (frleader *FlowRetransmitLeaderNode) dispatchJob(time int64, job flowJobInfo) error {
 	log.Debug().Msgf("dispatching a job %v", job)
 
 	dest, ok := frleader.LayerDests[job.layerID]
@@ -1238,9 +1195,8 @@ func (frleader *FlowRetransmitLeaderNode) dispatchJob(job flowJobInfo) error {
 	// 	return frLeader.sendLayer(dest, job.layerID, layerSrc)
 	// }
 
-	// TODO: adjustable offset
-	const Offset = 0
-	frMsg := NewFlowRetransmitMsg(frleader.node.GetMyID(), job.layerID, dest, job.dataSize, Offset)
+	rate := job.dataSize / time
+	frMsg := NewFlowRetransmitMsg(frleader.node.GetMyID(), job.layerID, dest, job.dataSize, job.offset, rate)
 	// yet the transmitMsg itself is sent to the owner, not the dest of the layer.
 	err := frleader.GetTransport().Send(job.senderID, frMsg)
 	return err
@@ -1475,6 +1431,49 @@ func (frReceiver *FlowRetransmitReceiverNode) handleIncomingMsg() {
 	}()
 }
 
+// handleLayerMsg stores the layer to its memory, and then sends ack to the leader.
+func (frReceiver *FlowRetransmitReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
+	frReceiver.mu.Lock()
+	defer frReceiver.mu.Unlock()
+
+	var layerSrc LayerSrc
+
+	layerSrc, ok := frReceiver.layers[layerMsg.LayerID]
+	if !ok {
+		data := make(LayerData, layerMsg.TotalSize)
+		// initialize layerSrc
+		layerSrc = LayerSrc{
+			InmemData: &data,
+			Fp:        "",
+			DataSize:  0,
+			Offset:    0,
+			Meta: LayerMeta{
+				Location: InmemLayer,
+			},
+		}
+	}
+
+	// save a part of layer
+	layerSrc.DataSize += layerMsg.LayerSrc.DataSize
+	partialData := layerMsg.LayerSrc.InmemData
+	buf := *layerSrc.InmemData
+	copy(buf[layerMsg.LayerSrc.Offset:], *partialData)
+
+	// store layer
+	frReceiver.layers[layerMsg.LayerID] = layerSrc
+	log.Debug().Msgf("saved layer %v in memory", layerMsg.LayerID)
+
+	// todo: how does the receiver know that the layer has been completely received?
+	if layerSrc.DataSize == layerMsg.TotalSize {
+		// send ack to leader
+		ackMsg := NewAckMsg(frReceiver.node.GetMyID(), layerMsg.LayerID, layerSrc.Meta.Location)
+		err := frReceiver.GetTransport().Send(frReceiver.getLeader(), ackMsg)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to send ackMsg")
+		}
+	}
+}
+
 func (frReceiver *FlowRetransmitReceiverNode) handleFlowRetransmitMsg(frMsg *flowRetransmitMsg) {
 	handleFlowRetransmit(frReceiver.node, frReceiver.layers, &frReceiver.mu, frReceiver.fetchFromClient, frMsg)
 }
@@ -1494,6 +1493,7 @@ func handleFlowRetransmit(n node, layers Layers, mu *sync.RWMutex, fetchFromClie
 	case InmemLayer, DiskLayer:
 		partialLayerSrc.DataSize = frMsg.DataSize
 		partialLayerSrc.Offset = frMsg.Offset
+		partialLayerSrc.Meta.LimitRate = frMsg.Rate
 
 	// todo: client cannot be used for now
 	// case ClientLayer:

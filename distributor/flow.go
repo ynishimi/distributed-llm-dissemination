@@ -112,7 +112,7 @@ func (frleader *FlowRetransmitLeaderNode) newFlowGraph() *flowGraph {
 	return &g
 }
 
-func (g *flowGraph) getJobAssignment() flowJobInfosMap {
+func (g *flowGraph) getJobAssignment() (int64, flowJobInfosMap) {
 	requiredFlow := int64(0)
 
 	for layerID := range g.assignmentLayerIDs {
@@ -168,7 +168,7 @@ func (g *flowGraph) getJobAssignment() flowJobInfosMap {
 		}
 	}
 
-	return flowJobs
+	return t, flowJobs
 }
 
 func (g *flowGraph) buildEdgeCapacity(time int64) {

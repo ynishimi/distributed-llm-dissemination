@@ -124,15 +124,17 @@ type flowRetransmitMsg struct {
 	DestID   NodeID
 	DataSize int64
 	Offset   int64
+	Rate     int64
 }
 
-func NewFlowRetransmitMsg(src NodeID, layerID LayerID, destID NodeID, dataSize int64, offset int64) *flowRetransmitMsg {
+func NewFlowRetransmitMsg(src NodeID, layerID LayerID, destID NodeID, dataSize int64, offset int64, rate int64) *flowRetransmitMsg {
 	return &flowRetransmitMsg{
 		SrcID:    src,
 		LayerID:  layerID,
 		DestID:   destID,
 		DataSize: dataSize,
 		Offset:   offset,
+		Rate:     rate,
 	}
 }
 
@@ -145,7 +147,7 @@ func (m *flowRetransmitMsg) Type() MsgType {
 }
 
 func (m *flowRetransmitMsg) String() string {
-	return fmt.Sprintf("from %v: layer %v, to %v, size: %d, offset: %d", m.SrcID, m.LayerID, m.DestID, m.DataSize, m.Offset)
+	return fmt.Sprintf("from %v: layer %v, to %v, size: %d, offset: %d, rate: %d", m.SrcID, m.LayerID, m.DestID, m.DataSize, m.Offset, m.Rate)
 }
 
 // layerMsg
