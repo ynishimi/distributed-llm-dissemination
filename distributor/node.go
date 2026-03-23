@@ -347,7 +347,7 @@ func (leader *LeaderNode) sendLayer(destID NodeID, layerID LayerID, layerSrc Lay
 		return leader.fetchFromClient(layerID, destID)
 	}
 
-	err := leader.GetTransport().Send(destID, NewLayerMsg(leader.node.GetMyID(), layerID, ls))
+	err := leader.GetTransport().Send(destID, NewLayerMsg(leader.node.GetMyID(), layerID, ls, ls.DataSize))
 	return err
 }
 
@@ -1179,7 +1179,7 @@ func (frleader *FlowRetransmitLeaderNode) sendLayers(time int64, jobsMap flowJob
 }
 
 func (frleader *FlowRetransmitLeaderNode) dispatchJob(time int64, job flowJobInfo) error {
-	log.Debug().Msgf("dispatching a job %v", job)
+	// log.Debug().Msgf("dispatching a job: %v", job.String())
 
 	dest, ok := frleader.LayerDests[job.layerID]
 	if !ok {
@@ -1194,6 +1194,8 @@ func (frleader *FlowRetransmitLeaderNode) dispatchJob(time int64, job flowJobInf
 	// 	}
 	// 	return frLeader.sendLayer(dest, job.layerID, layerSrc)
 	// }
+
+	log.Debug().Str("Job", job.String()).Msg("dispatching a job")
 
 	rate := job.dataSize / time
 	frMsg := NewFlowRetransmitMsg(frleader.node.GetMyID(), job.layerID, dest, job.dataSize, job.offset, rate)
@@ -1390,7 +1392,7 @@ func (rReceiver *RetransmitReceiverNode) handleRetransmitMsg(retransmitMsg *retr
 
 	// send (retransmit) layer to dest.
 	// the layer should be stored in memory
-	layerMsg := NewLayerMsg(rReceiver.GetMyID(), retransmitMsg.LayerID, ls)
+	layerMsg := NewLayerMsg(rReceiver.GetMyID(), retransmitMsg.LayerID, ls, ls.DataSize)
 	err := rReceiver.GetTransport().Send(retransmitMsg.DestID, layerMsg)
 	if err != nil {
 		log.Error().Err(err).Msgf("failed to send layer to %v", retransmitMsg.DestID)
@@ -1463,7 +1465,8 @@ func (frReceiver *FlowRetransmitReceiverNode) handleLayerMsg(layerMsg *layerMsg)
 	frReceiver.layers[layerMsg.LayerID] = layerSrc
 	log.Debug().Msgf("saved layer %v in memory", layerMsg.LayerID)
 
-	// todo: how does the receiver know that the layer has been completely received?
+	log.Info().Msgf("l%d downloaded (%d B / %d B)", layerMsg.LayerID, layerSrc.DataSize, layerMsg.TotalSize)
+
 	if layerSrc.DataSize == layerMsg.TotalSize {
 		// send ack to leader
 		ackMsg := NewAckMsg(frReceiver.node.GetMyID(), layerMsg.LayerID, layerSrc.Meta.Location)
@@ -1503,6 +1506,6 @@ func handleFlowRetransmit(n node, layers Layers, mu *sync.RWMutex, fetchFromClie
 		log.Error().Msg("unknown location")
 	}
 
-	layerMsg := NewLayerMsg(n.GetMyID(), frMsg.LayerID, partialLayerSrc)
+	layerMsg := NewLayerMsg(n.GetMyID(), frMsg.LayerID, partialLayerSrc, layerSrc.DataSize)
 	return n.GetTransport().Send(frMsg.DestID, layerMsg)
 }

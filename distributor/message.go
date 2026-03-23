@@ -162,11 +162,12 @@ type layerMsg struct {
 }
 
 // NewLayerMsg creates a new layerMsg. If the layer is not in memory, it fetches the file from the disk.
-func NewLayerMsg(src NodeID, layerID LayerID, layerSrc LayerSrc) *layerMsg {
+func NewLayerMsg(src NodeID, layerID LayerID, layerSrc LayerSrc, totalSize int64) *layerMsg {
 	return &layerMsg{
-		SrcID:    src,
-		LayerID:  layerID,
-		LayerSrc: layerSrc,
+		SrcID:     src,
+		LayerID:   layerID,
+		LayerSrc:  layerSrc,
+		TotalSize: totalSize,
 		// SaveDisk: saveDisk,
 		// limitRate: layerSrc.Meta.LimitRate,
 	}

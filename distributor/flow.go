@@ -31,7 +31,7 @@ type flowJobInfo struct {
 }
 
 func (job *flowJobInfo) String() string {
-	return fmt.Sprintf("s%d -> (l%d: %dB), offset:%d", job.senderID, job.layerID, job.dataSize, job.offset)
+	return fmt.Sprintf("s%d -> (l%d: %d Bytes), offset: %d", job.senderID, job.layerID, job.dataSize, job.offset)
 }
 
 type flowJobInfosMap map[NodeID][]flowJobInfo
@@ -71,9 +71,6 @@ func (frleader *FlowRetransmitLeaderNode) newFlowGraph() *flowGraph {
 		}
 	}
 
-	// numVertex = src + sink + num of nodes + num of layers
-	numVertex := n
-
 	// add idx
 	// 1. src to sender
 	src := flowNode{kind: kindSource}
@@ -98,8 +95,15 @@ func (frleader *FlowRetransmitLeaderNode) newFlowGraph() *flowGraph {
 	// 4. receiver to sink
 	addIndex(flowNode{kind: kindSink})
 
+	// numVertex = src + sink + num of nodes + num of layers
+	numVertex := n
+	adjMatrix := make([][]int64, numVertex)
+	for i := range numVertex {
+		adjMatrix[i] = make([]int64, numVertex)
+	}
+
 	g := flowGraph{
-		adjMatrix:          make([][]int64, numVertex),
+		adjMatrix:          adjMatrix,
 		assignment:         frleader.assignment,
 		status:             frleader.status,
 		layers:             frleader.layers,
@@ -115,6 +119,7 @@ func (frleader *FlowRetransmitLeaderNode) newFlowGraph() *flowGraph {
 func (g *flowGraph) getJobAssignment() (int64, flowJobInfosMap) {
 	requiredFlow := int64(0)
 
+	log.Debug().Msg("assigning a job...")
 	for layerID := range g.assignmentLayerIDs {
 		requiredFlow += g.layers[layerID].DataSize
 	}
@@ -122,12 +127,18 @@ func (g *flowGraph) getJobAssignment() (int64, flowJobInfosMap) {
 	// first, attain the upper bound of execution time
 	tUpper := int64(1)
 	for {
+		// log.Debug().Int64("tUpper", tUpper).Msg("searching tUpper")
 		maxFlow := g.updateMaxFlow(tUpper)
 		if maxFlow >= requiredFlow {
 			break
 		}
+		if tUpper > math.MaxInt64/2 {
+			log.Error().Msg("tUpper not found")
+			break
+		}
 		tUpper *= 2
 	}
+	log.Debug().Int64("tUpper", tUpper).Msg("tUpper found")
 
 	// find the minimum time by bisect
 	l := int64(1)
@@ -142,13 +153,14 @@ func (g *flowGraph) getJobAssignment() (int64, flowJobInfosMap) {
 			l = m + 1
 		} else {
 			// update the value with the new flow (=time)
-			t = min(t, maxFlow)
+			t = min(t, m)
 			// r too big, look for a shorter time
 			r = m - 1
 		}
 	}
 
 	// t is the value we want to get; update the flow with the obtained time t.
+	// log.Debug().Int64("t", t).Msg("minimum t found")
 	g.updateMaxFlow(t)
 
 	flowJobs := make(flowJobInfosMap)
@@ -159,7 +171,7 @@ func (g *flowGraph) getJobAssignment() (int64, flowJobInfosMap) {
 		for layerID := range layerIDs {
 			sender := flowNode{kind: kindSender, nodeID: senderID}
 			layer := flowNode{kind: kindLayer, layerID: layerID}
-			flow := g.adjMatrix[g.idx[sender]][g.idx[layer]]
+			flow := g.adjMatrix[g.idx[layer]][g.idx[sender]]
 			if flow > 0 {
 				offset := layerOffset[layerID]
 				flowJobs[senderID] = append(flowJobs[senderID], flowJobInfo{senderID, layerID, flow, offset})
@@ -168,10 +180,29 @@ func (g *flowGraph) getJobAssignment() (int64, flowJobInfosMap) {
 		}
 	}
 
+	// debug
+	jobStrings := make([]string, 0)
+	for _, jobs := range flowJobs {
+		for _, job := range jobs {
+			jobStrings = append(jobStrings, job.String())
+		}
+	}
+	log.Debug().
+		Int64("calculated time(s)", t).
+		Strs("jobs", jobStrings).
+		Msg("job assignment calculated")
+
 	return t, flowJobs
 }
 
 func (g *flowGraph) buildEdgeCapacity(time int64) {
+
+	// reset adjMatrix
+	for i := range g.adjMatrix {
+		for j := range g.adjMatrix[i] {
+			g.adjMatrix[i][j] = 0
+		}
+	}
 
 	// todo: get network b/w of sender
 	networkBW := int64(math.Pow(2, 30))
@@ -207,15 +238,19 @@ func (g *flowGraph) buildEdgeCapacity(time int64) {
 		sink := flowNode{kind: kindSink}
 		g.addEdge(g.idx[receiver], g.idx[sink], networkBW*time)
 	}
+	// log.Debug().Msg("built edge capacity")
 }
 
 func (g *flowGraph) addEdge(src, dest int, capacity int64) {
 	g.adjMatrix[src][dest] = capacity
+	// log.Debug().Int("src", src).Int("dest", dest).Int64("capacity", capacity).Send()
 }
 
 // bfs checks if there is a path from src to dest.
 // if the path is found, them it returns the shortest path, creating the map of parent for each vertex.
 func (g *flowGraph) bfs(src, dest int) (parent []int, ok bool) {
+
+	// log.Debug().Int("src", src).Int("dest", dest).Send()
 	visited := make([]bool, g.numVertex)
 	parent = make([]int, g.numVertex)
 	var queue []int
@@ -223,28 +258,34 @@ func (g *flowGraph) bfs(src, dest int) (parent []int, ok bool) {
 	visited[src] = true
 
 	for len(queue) != 0 {
-		u, queue := queue[0], queue[1:]
+		u := queue[0]
+		queue = queue[1:]
+		// log.Debug().Int("u", u).Send()
 
 		for ind, val := range g.adjMatrix[u] {
 			if !visited[ind] && val > 0 {
+				// log.Debug().Int("ind", ind).Int64("val", val).Send()
 				queue = append(queue, ind)
 				visited[ind] = true
 				parent[ind] = u
 
 				if ind == dest {
 					// a shortest path was found
+					// log.Debug().Msg("shortest path found")
 					return parent, true
 				}
 			}
 		}
 	}
 	// a path src -> dst is not available
+	// log.Debug().Msg("shortest path not found")
 	return parent, false
 }
 
 // updateMaxFlow calculates the max flow of given time.
 // This is essentially an implementation of the Edmonds-Karp Algorithm.
-func (g *flowGraph) updateMaxFlow(time int64) (maxFlow int64) {
+func (g *flowGraph) updateMaxFlow(time int64) int64 {
+	// log.Debug().Msg("updateMaxFlow")
 	g.buildEdgeCapacity(time)
 
 	g.maxFlow = 0
@@ -256,6 +297,7 @@ func (g *flowGraph) updateMaxFlow(time int64) (maxFlow int64) {
 		// get the shortest path from src to sink
 		parent, ok := g.bfs(src, sink)
 		if !ok {
+			// log.Debug().Int64("maxFlow", g.maxFlow).Send()
 			return g.maxFlow
 		}
 

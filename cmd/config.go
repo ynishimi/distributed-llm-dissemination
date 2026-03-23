@@ -23,8 +23,15 @@ type NodeConf struct {
 	ID            distributor.NodeID
 	Addr          string
 	IsLeader      bool
-	InitialLayers distributor.LayerIDs
+	InitialLayers InitialLayers
 }
+
+type InitialLayerConf struct {
+	LayerSize int64
+	LimitRate int64
+}
+
+type InitialLayers map[distributor.LayerID]InitialLayerConf
 
 // set of LayerIDs for clients
 type LayerIDsRateLimit map[distributor.LayerID]int64
@@ -82,16 +89,23 @@ func GetClientConf(conf *config, node distributor.NodeID) (*ClientConf, error) {
 	return nil, fmt.Errorf("no client found")
 }
 
-func CreateLayers(myConf NodeConf, layerSize int64, saveDisk bool) distributor.Layers {
+func CreateLayers(myConf NodeConf, saveDisk bool) distributor.Layers {
 	layers := make(distributor.Layers)
 
-	for layerID := range myConf.InitialLayers {
+	for layerID, initialLayerConf := range myConf.InitialLayers {
+		currentLayerSize := initialLayerConf.LayerSize
+		if currentLayerSize < 0 {
+			currentLayerSize = 0
+		}
+
 		var layerSrc distributor.LayerSrc
 		if saveDisk {
-			layerSrc = CreateDiskLayer(myConf.ID, layerID, layerSize, *storagePath)
+			layerSrc = CreateDiskLayer(myConf.ID, layerID, currentLayerSize, *storagePath)
 		} else {
-			layerSrc = CreateInmemLayer(layerID, layerSize)
+			layerSrc = CreateInmemLayer(layerID, currentLayerSize)
 		}
+		layerSrc.DataSize = currentLayerSize
+		layerSrc.Meta.LimitRate = initialLayerConf.LimitRate
 		layers[layerID] = layerSrc
 	}
 
@@ -183,27 +197,19 @@ func CreateClientLayerInfo(layerID distributor.LayerID, layerSize int64, limitRa
 func PrintJsonExample() {
 	ncs := make([]NodeConf, 4)
 	// todo: layer setup
-	ncs[0] = NodeConf{0, ":8080", true, make(distributor.LayerIDs)}
-	ncs[1] = NodeConf{1, ":8081", false, make(distributor.LayerIDs)}
-	ncs[2] = NodeConf{2, ":8082", false, make(distributor.LayerIDs)}
-	ncs[3] = NodeConf{3, ":8083", false, make(distributor.LayerIDs)}
+	ncs[0] = NodeConf{0, ":8080", true, make(InitialLayers)}
+	ncs[1] = NodeConf{1, ":8081", false, make(InitialLayers)}
+	ncs[2] = NodeConf{2, ":8082", false, make(InitialLayers)}
+	ncs[3] = NodeConf{3, ":8083", false, make(InitialLayers)}
 
 	// leader should have all the layers
-	ncs[0].InitialLayers[1] = distributor.LayerMeta{
-		Location: distributor.InmemLayer,
-	}
+	ncs[0].InitialLayers[1] = InitialLayerConf{}
 
-	ncs[0].InitialLayers[3] = distributor.LayerMeta{
-		Location: distributor.InmemLayer,
-	}
+	ncs[0].InitialLayers[3] = InitialLayerConf{}
 
-	ncs[1].InitialLayers[1] = distributor.LayerMeta{
-		Location: distributor.InmemLayer,
-	}
+	ncs[1].InitialLayers[1] = InitialLayerConf{}
 
-	ncs[3].InitialLayers[3] = distributor.LayerMeta{
-		Location: distributor.InmemLayer,
-	}
+	ncs[3].InitialLayers[3] = InitialLayerConf{}
 
 	a := make(distributor.Assignment)
 

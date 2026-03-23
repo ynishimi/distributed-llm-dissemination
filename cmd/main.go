@@ -94,7 +94,7 @@ func main() {
 	numPeers := uint(len(conf.Nodes))
 
 	// load (dummy) layers
-	layers := CreateLayers(myNodeConf, conf.LayerSize, saveDisk)
+	layers := CreateLayers(myNodeConf, saveDisk)
 
 	// If there is a client connecte to the node, add layers of it
 	if myClientConf != nil {
@@ -149,6 +149,8 @@ func RunLeader(myID distributor.NodeID, n *distributor.N, t distributor.Transpor
 		leaderNode = distributor.NewRetransmitLeaderNode(n, layers, assignment)
 	case 2:
 		leaderNode = distributor.NewPullRetransmitLeaderNode(n, layers, assignment)
+	case 3:
+		leaderNode = distributor.NewFlowRetransmitLeaderNode(n, layers, assignment)
 
 	default:
 		return fmt.Errorf("unknown mode")
@@ -177,10 +179,11 @@ func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor
 	switch mode {
 	case 0:
 		receiverNode = distributor.NewReceiverNode(n, layers, *storagePath)
-	case 1:
+	case 1, 2:
 		receiverNode = distributor.NewRetransmitReceiverNode(n, layers, *storagePath)
-	case 2:
-		receiverNode = distributor.NewRetransmitReceiverNode(n, layers, *storagePath)
+	case 3:
+		receiverNode = distributor.NewFlowRetransmitReceiverNode(n, layers, *storagePath)
+
 	default:
 		return fmt.Errorf("unknown mode")
 	}

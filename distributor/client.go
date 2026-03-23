@@ -54,7 +54,7 @@ func (c *Client) handleClientReqMsg(clientReqMsg *clientReqMsg) error {
 
 	// send (retransmit) layer to dest.
 	// the layer should be stored in memory
-	layerMsg := NewLayerMsg(ClientID, clientReqMsg.LayerID, layerSrc)
+	layerMsg := NewLayerMsg(ClientID, clientReqMsg.LayerID, layerSrc, layerSrc.DataSize)
 	err := c.t.Send(c.nodeID, layerMsg)
 	if err != nil {
 		log.Error().Err(err).Msgf("failed to send layer to %v", clientReqMsg.SrcID)
