@@ -3,27 +3,30 @@
         {
             "Id": 0,
             "Addr": ":8080",
+            "NetworkBW": 1562500000,
             "IsLeader": true,
             "InitialLayers": {
                 "0": {
                     "LayerSize": 1950630980,
-                    "LimitRate": 1950630980
+                    "LimitRate": 31457280
                 }
             }
         },
         {
             "Id": 1,
             "Addr": ":8081",
+            "NetworkBW": 1562500000,
             "IsLeader": false,
             "InitialLayers": {
                 "0": {
                     "LayerSize": 1950630980,
-                    "LimitRate": 1950630980
+                    "LimitRate": 209715200
                 }
             }
         },
         {
             "Id": 2,
+            "NetworkBW": 1562500000,
             "Addr": ":8082",
             "IsLeader": false,
             "InitialLayers": {}

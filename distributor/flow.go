@@ -41,6 +41,7 @@ type flowGraph struct {
 	assignment         Assignment
 	status             status
 	layers             Layers
+	nodeNetworkBW      map[NodeID]int64
 	assignmentLayerIDs LayerIDs
 	idx                map[flowNode]int
 	numVertex          int
@@ -107,6 +108,7 @@ func (frleader *FlowRetransmitLeaderNode) newFlowGraph() *flowGraph {
 		assignment:         frleader.assignment,
 		status:             frleader.status,
 		layers:             frleader.layers,
+		nodeNetworkBW:      frleader.NodeNetworkBW,
 		assignmentLayerIDs: assignmentLayerIDs,
 		idx:                idx,
 		numVertex:          numVertex,
@@ -204,9 +206,6 @@ func (g *flowGraph) buildEdgeCapacity(time int64) {
 		}
 	}
 
-	// todo: get network b/w of sender
-	networkBW := int64(math.Pow(2, 30))
-
 	// todo: get each layer's size
 
 	// add edges
@@ -214,7 +213,8 @@ func (g *flowGraph) buildEdgeCapacity(time int64) {
 	src := flowNode{kind: kindSource}
 	for nodeID := range g.status {
 		sender := flowNode{kind: kindSender, nodeID: nodeID}
-		g.addEdge(g.idx[src], g.idx[sender], networkBW*time)
+		senderNetworkBW := g.getNodeNetworkBW(nodeID)
+		g.addEdge(g.idx[src], g.idx[sender], senderNetworkBW*time)
 	}
 
 	// 2. sender to layer
@@ -236,9 +236,14 @@ func (g *flowGraph) buildEdgeCapacity(time int64) {
 
 		// 4. receiver to sink
 		sink := flowNode{kind: kindSink}
-		g.addEdge(g.idx[receiver], g.idx[sink], networkBW*time)
+		receiverNetworkBW := g.getNodeNetworkBW(nodeID)
+		g.addEdge(g.idx[receiver], g.idx[sink], receiverNetworkBW*time)
 	}
 	// log.Debug().Msg("built edge capacity")
+}
+
+func (g *flowGraph) getNodeNetworkBW(nodeID NodeID) int64 {
+	return g.nodeNetworkBW[nodeID]
 }
 
 func (g *flowGraph) addEdge(src, dest int, capacity int64) {

@@ -123,9 +123,13 @@ func main() {
 	}
 
 	n := distributor.NewNode(myID, leaderNodeConf.ID, t)
+	nodeNetworkBW := make(map[distributor.NodeID]int64, len(conf.Nodes))
+	for _, nodeconf := range conf.Nodes {
+		nodeNetworkBW[nodeconf.ID] = nodeconf.NetworkBW
+	}
 
 	if myNodeConf.IsLeader {
-		err = RunLeader(myID, n, t, layers, conf.Assignment, mode)
+		err = RunLeader(myID, n, t, layers, conf.Assignment, nodeNetworkBW, mode)
 		if err != nil {
 			log.Error().Err(err).Msg("leader failed")
 		}
@@ -138,7 +142,7 @@ func main() {
 
 }
 
-func RunLeader(myID distributor.NodeID, n *distributor.N, t distributor.Transport, layers distributor.Layers, assignment distributor.Assignment, mode uint) error {
+func RunLeader(myID distributor.NodeID, n *distributor.N, t distributor.Transport, layers distributor.Layers, assignment distributor.Assignment, nodeNetworkBW map[distributor.NodeID]int64, mode uint) error {
 	fmt.Printf("launching leader...\n[addr: %s, id: %v, filename: %s, storagePath: %v, mode: %v]\n", n.GetTransport().GetAddress(), myID, *fileName, *storagePath, mode)
 
 	var leaderNode distributor.Leader
@@ -150,7 +154,7 @@ func RunLeader(myID distributor.NodeID, n *distributor.N, t distributor.Transpor
 	case 2:
 		leaderNode = distributor.NewPullRetransmitLeaderNode(n, layers, assignment)
 	case 3:
-		leaderNode = distributor.NewFlowRetransmitLeaderNode(n, layers, assignment)
+		leaderNode = distributor.NewFlowRetransmitLeaderNode(n, layers, assignment, nodeNetworkBW)
 
 	default:
 		return fmt.Errorf("unknown mode")

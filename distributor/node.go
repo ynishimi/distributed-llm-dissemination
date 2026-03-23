@@ -1061,10 +1061,11 @@ func (prLeader *PullRetransmitLeaderNode) getRarestStealableJob(node NodeID) (ra
 // FlowRetransmitLeaderNode implements flow-based transmit leader node.
 type FlowRetransmitLeaderNode struct {
 	*RetransmitLeaderNode
-	LayerDests map[LayerID]NodeID // caution: only one dest is accepted in this implementaion!
+	LayerDests    map[LayerID]NodeID // caution: only one dest is accepted in this implementaion!
+	NodeNetworkBW map[NodeID]int64
 }
 
-func NewFlowRetransmitLeaderNode(node node, layers Layers, assignment Assignment) *FlowRetransmitLeaderNode {
+func NewFlowRetransmitLeaderNode(node node, layers Layers, assignment Assignment, nodeNetworkBW map[NodeID]int64) *FlowRetransmitLeaderNode {
 	rLeaderBase := NewRetransmitLeaderNodeBase(node, layers, assignment)
 
 	// initialize layerDests
@@ -1079,9 +1080,16 @@ func NewFlowRetransmitLeaderNode(node node, layers Layers, assignment Assignment
 		}
 	}
 
+	// copy to avoid accidental external mutation while scheduling jobs
+	networkBW := make(map[NodeID]int64, len(nodeNetworkBW))
+	for nodeID, bw := range nodeNetworkBW {
+		networkBW[nodeID] = bw
+	}
+
 	prLeader := &FlowRetransmitLeaderNode{
 		RetransmitLeaderNode: rLeaderBase,
 		LayerDests:           layerDests,
+		NodeNetworkBW:        networkBW,
 	}
 
 	prLeader.handleIncomingMsg()
