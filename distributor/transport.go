@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net"
 	"os"
 	"sync"
@@ -384,7 +383,7 @@ func (t *TcpTransport) writeWithLimit(limitRate int64, layerID LayerID, data Lay
 	const BucketSize = 256 * 1024
 	limiter := rate.NewLimiter(rate.Limit(limitRate), BucketSize)
 	// limit speed
-	log.Debug().Uint("layerID", uint(layerID)).Msgf("sending with limit: %f MiB/s", float64(limiter.Limit())/math.Pow(2, 20))
+	log.Debug().Uint("layerID", uint(layerID)).Msgf("sending with limit: %v MiB/s", int64(limiter.Limit())>>20)
 	for len(data) > 0 {
 		n := min(len(data), limiter.Burst())
 		limiter.WaitN(context.Background(), n)

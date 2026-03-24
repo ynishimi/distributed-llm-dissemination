@@ -8,6 +8,22 @@
             "InitialLayers": {
                 "0": {
                     "LayerSize": 1950630980,
+                    "LimitRate": 209715200
+                },
+                "1": {
+                    "LayerSize": 1950630980,
+                    "LimitRate": 209715200
+                },
+                "2": {
+                    "LayerSize": 1950630980,
+                    "LimitRate": 31457280
+                },
+                "3": {
+                    "LayerSize": 1950630980,
+                    "LimitRate": 209715200
+                },
+                "4": {
+                    "LayerSize": 1950630980,
                     "LimitRate": 31457280
                 }
             }
@@ -21,22 +37,72 @@
                 "0": {
                     "LayerSize": 1950630980,
                     "LimitRate": 209715200
+                },
+                "2": {
+                    "LayerSize": 1950630980,
+                    "LimitRate": 209715200
+                },
+                "3": {
+                    "LayerSize": 1950630980,
+                    "LimitRate": 209715200
+                },
+                "4": {
+                    "LayerSize": 1950630980,
+                    "LimitRate": 209715200
                 }
             }
         },
         {
             "Id": 2,
-            "NetworkBW": 1562500000,
             "Addr": ":8082",
+            "NetworkBW": 1562500000,
+            "IsLeader": false,
+            "InitialLayers": {}
+        },
+        {
+            "Id": 3,
+            "Addr": ":8083",
+            "NetworkBW": 1562500000,
+            "IsLeader": false,
+            "InitialLayers": {}
+        },
+        {
+            "Id": 4,
+            "Addr": ":8084",
+            "NetworkBW": 1562500000,
+            "IsLeader": false,
+            "InitialLayers": {}
+        },
+        {
+            "Id": 5,
+            "Addr": ":8085",
+            "NetworkBW": 1562500000,
+            "IsLeader": false,
+            "InitialLayers": {}
+        },
+        {
+            "Id": 6,
+            "Addr": ":8086",
+            "NetworkBW": 1562500000,
             "IsLeader": false,
             "InitialLayers": {}
         }
     ],
     "Assignment": {
-        "0": {},
-        "1": {},
         "2": {
             "0": {}
+        },
+        "3": {
+            "1": {}
+        },
+        "4": {
+            "2": {}
+        },
+        "5": {
+            "4": {}
+        },
+        "6": {
+            "3": {}
         }
     }
 }

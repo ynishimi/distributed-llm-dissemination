@@ -1203,9 +1203,9 @@ func (frleader *FlowRetransmitLeaderNode) dispatchJob(time int64, job flowJobInf
 	// 	return frLeader.sendLayer(dest, job.layerID, layerSrc)
 	// }
 
-	log.Debug().Str("Job", job.String()).Msg("dispatching a job")
-
 	rate := job.dataSize / time
+
+	log.Debug().Str("Job", job.String()).Int64("rate[MiB/s]", rate>>20).Msg("dispatching a job")
 	frMsg := NewFlowRetransmitMsg(frleader.node.GetMyID(), job.layerID, dest, job.dataSize, job.offset, rate)
 	// yet the transmitMsg itself is sent to the owner, not the dest of the layer.
 	err := frleader.GetTransport().Send(job.senderID, frMsg)

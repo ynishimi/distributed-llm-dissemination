@@ -2,7 +2,9 @@ package distributor
 
 import (
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 
 	"github.com/rs/zerolog/log"
 )
@@ -78,17 +80,17 @@ func (frleader *FlowRetransmitLeaderNode) newFlowGraph() *flowGraph {
 	addIndex(src)
 
 	// 2. sender to layer
-	for nodeID := range frleader.status {
+	for _, nodeID := range slices.Sorted(maps.Keys(frleader.status)) {
 		sender := flowNode{kind: kindSender, nodeID: nodeID}
 		addIndex(sender)
 	}
-	for layerID := range assignmentLayerIDs {
+	for _, layerID := range slices.Sorted(maps.Keys(assignmentLayerIDs)) {
 		layer := flowNode{kind: kindLayer, layerID: layerID}
 		addIndex(layer)
 	}
 
 	// 3. layer to receiver
-	for nodeID := range frleader.assignment {
+	for _, nodeID := range slices.Sorted(maps.Keys(frleader.assignment)) {
 		receiver := flowNode{kind: kindReceiver, nodeID: nodeID}
 		addIndex(receiver)
 	}
@@ -182,16 +184,8 @@ func (g *flowGraph) getJobAssignment() (int64, flowJobInfosMap) {
 		}
 	}
 
-	// debug
-	jobStrings := make([]string, 0)
-	for _, jobs := range flowJobs {
-		for _, job := range jobs {
-			jobStrings = append(jobStrings, job.String())
-		}
-	}
 	log.Debug().
 		Int64("calculated time(s)", t).
-		Strs("jobs", jobStrings).
 		Msg("job assignment calculated")
 
 	return t, flowJobs
@@ -205,8 +199,6 @@ func (g *flowGraph) buildEdgeCapacity(time int64) {
 			g.adjMatrix[i][j] = 0
 		}
 	}
-
-	// todo: get each layer's size
 
 	// add edges
 	// 1. src to sender
