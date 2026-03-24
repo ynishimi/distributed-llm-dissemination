@@ -1166,8 +1166,13 @@ func (frleader *FlowRetransmitLeaderNode) handleFlowRetransmitMsg(frMsg *flowRet
 
 // assignJobs iterates through the assignment and creates an assignments of jobs.
 func (frleader *FlowRetransmitLeaderNode) assignJobs() (int64, flowJobInfosMap) {
+	t0 := time.Now()
 	g := frleader.newFlowGraph()
 	t, jobsMap := g.getJobAssignment()
+
+	t1 := time.Since(t0)
+
+	log.Info().Str("calcTimeDuration", t1.String()).Send()
 
 	return t, jobsMap
 }
