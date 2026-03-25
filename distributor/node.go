@@ -1151,10 +1151,15 @@ func (frleader *FlowRetransmitLeaderNode) handleAnnounceMsg(announceMsg *announc
 }
 
 func (frleader *FlowRetransmitLeaderNode) handleFlowRetransmitMsg(frMsg *flowRetransmitMsg) error {
-	return handleFlowRetransmit(frleader.node, frleader.layers, &frleader.mu, frleader.fetchFromClient, frMsg)
+	t0 := time.Now()
+	err := handleFlowRetransmit(frleader.node, frleader.layers, &frleader.mu, frleader.fetchFromClient, frMsg)
+	t1 := time.Since(t0)
+
+	log.Info().Dur("transmission time", t1).Msg("Job assignment completed")
+	return err
 }
 
-// // todo: fetch a partial layer from a client
+// // todo: fetch a partial layer from an external client
 // func (frleader *FlowRetransmitLeaderNode) fetchFromClient(layerID LayerID, destID NodeID) error {
 
 // 	// log.Debug().Uint("layerID", uint(layerID)).Msg("ask the client to send the layer")
@@ -1172,17 +1177,20 @@ func (frleader *FlowRetransmitLeaderNode) assignJobs() (int64, flowJobInfosMap) 
 
 	t1 := time.Since(t0)
 
-	log.Info().Str("calcTimeDuration", t1.String()).Send()
+	log.Info().Dur("computation time", t1).Msg("Job assignment completed")
 
 	return t, jobsMap
 }
 
 // This time, the leader node dispatches jobs using flowJobsMap.
-func (frleader *FlowRetransmitLeaderNode) sendLayers(time int64, jobsMap flowJobInfosMap) {
+func (frleader *FlowRetransmitLeaderNode) sendLayers(minTime int64, jobsMap flowJobInfosMap) {
 	// for each sender, assign jobs from jobInfos slice
 	for _, jobInfos := range jobsMap {
 		for _, jobInfo := range jobInfos {
-			err := frleader.dispatchJob(time, jobInfo)
+			t0 := time.Now()
+			err := frleader.dispatchJob(minTime, jobInfo)
+			t1 := time.Since(t0)
+			log.Info().Dur("execution time", t1).Msg("dispatched a job")
 
 			if err != nil {
 				log.Error().Err(err).Msgf("couldn't send retransmit of %v to owner %v", jobInfo.layerID, frleader.LayerDests[jobInfo.layerID])
@@ -1191,7 +1199,7 @@ func (frleader *FlowRetransmitLeaderNode) sendLayers(time int64, jobsMap flowJob
 	}
 }
 
-func (frleader *FlowRetransmitLeaderNode) dispatchJob(time int64, job flowJobInfo) error {
+func (frleader *FlowRetransmitLeaderNode) dispatchJob(minTime int64, job flowJobInfo) error {
 	// log.Debug().Msgf("dispatching a job: %v", job.String())
 
 	dest, ok := frleader.LayerDests[job.layerID]
@@ -1208,7 +1216,7 @@ func (frleader *FlowRetransmitLeaderNode) dispatchJob(time int64, job flowJobInf
 	// 	return frLeader.sendLayer(dest, job.layerID, layerSrc)
 	// }
 
-	rate := job.dataSize / time
+	rate := job.dataSize / minTime
 
 	log.Debug().Str("Job", job.String()).Int64("rate[MiB/s]", rate>>20).Msg("dispatching a job")
 	frMsg := NewFlowRetransmitMsg(frleader.node.GetMyID(), job.layerID, dest, job.dataSize, job.offset, rate)

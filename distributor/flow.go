@@ -123,7 +123,7 @@ func (frleader *FlowRetransmitLeaderNode) newFlowGraph() *flowGraph {
 func (g *flowGraph) getJobAssignment() (int64, flowJobInfosMap) {
 	requiredFlow := int64(0)
 
-	log.Debug().Msg("assigning a job...")
+	log.Info().Msg("assigning a job...")
 	for layerID := range g.assignmentLayerIDs {
 		requiredFlow += g.layers[layerID].DataSize
 	}
@@ -184,8 +184,8 @@ func (g *flowGraph) getJobAssignment() (int64, flowJobInfosMap) {
 		}
 	}
 
-	log.Debug().
-		Int64("calculated time(s)", t).
+	log.Info().
+		Int64("required minimum time(s)", t).
 		Msg("job assignment calculated")
 
 	return t, flowJobs

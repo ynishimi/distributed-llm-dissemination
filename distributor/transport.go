@@ -70,7 +70,7 @@ func NewTcpTransport(addr string, bufSize uint, addrRegistory AddrRegistry, isCl
 		return nil, fmt.Errorf("failed to start listening: %w", err)
 	}
 	t.ln = ln
-	log.Debug().Str("addr", addr).Msg("start listening")
+	log.Info().Str("addr", addr).Msg("start listening")
 
 	// wait for the connection
 	go func() {

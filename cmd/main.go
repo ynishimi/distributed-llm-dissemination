@@ -59,7 +59,7 @@ func main() {
 
 	myClientConf, err := GetClientConf(conf, distributor.NodeID(myID))
 	if err != nil {
-		log.Warn().Err(err).Msg("client not found in config")
+		log.Info().Msg("external client not found in config")
 	}
 
 	if *client {
