@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"golang.org/x/time/rate"
@@ -48,6 +49,7 @@ type tempLayerInfo struct {
 	LayerID   LayerID
 	LayerSize int64
 	TotalSize int64
+	Offert    int64
 	// SaveDisk  bool
 }
 
@@ -123,7 +125,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 		}
 
 		// handles MsgTypeLayer
-		log.Debug().Msg("received LayerMsg")
+		// log.Debug().Msg("received LayerMsg")
 
 		// receive layer in binary
 		// loads header at first
@@ -135,6 +137,9 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			log.Error().Err(err).Msg("failed to decode TransportMsg(MsgTypeLayer)")
 			return
 		}
+
+		log.Info().Int("layerID", int(temp.LayerID)).Int("layer_size", int(temp.LayerSize)).Int("total_size", int(temp.TotalSize)).Msg("start receiving layer")
+		t0 := time.Now()
 
 		// if pipe exists, the layer should be piped at the same time
 		if pDestConn, ok := t.getAndUnregisterPipe(temp.LayerID); ok {
@@ -192,6 +197,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 		} else {
 			log.Debug().Msg("no pipe found")
 			// then loads layer
+
 			buf = make(LayerData, temp.LayerSize)
 			reader := io.MultiReader(d.Buffered(), conn)
 			_, err = io.ReadFull(reader, buf)
@@ -204,7 +210,14 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 		// moves the decoder
 		d = json.NewDecoder(conn)
 
-		// fixme: currently, always loads the layer to memory.
+		t1 := time.Since(t0)
+		log.Info().
+			Int("layerID", int(temp.LayerID)).
+			Int("layer_size", int(temp.LayerSize)).
+			Int("total_size", int(temp.TotalSize)).
+			Dur("duration[ms]", t1).
+			Msg("layer received")
+		// fixme: all the fraction of the layers are once saved in the buf and then copied again
 		layerSrc := LayerSrc{&buf, "", int64(len(buf)), 0, LayerMeta{Location: InmemLayer}}
 		t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc, temp.TotalSize}
 
@@ -290,7 +303,7 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 
 	if layerMsg, ok := message.(*layerMsg); ok {
 		// sends header and layer separately for avoiding unnecesary memory occupation due to decoding
-		header := tempLayerInfo{layerMsg.SrcID, layerMsg.LayerID, layerMsg.LayerSrc.DataSize, layerMsg.TotalSize}
+		header := tempLayerInfo{layerMsg.SrcID, layerMsg.LayerID, layerMsg.LayerSrc.DataSize, layerMsg.TotalSize, layerMsg.LayerSrc.Offset}
 
 		// sends header first
 		marshaledHdr, err := json.Marshal(header)

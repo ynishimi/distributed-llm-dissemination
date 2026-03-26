@@ -1492,9 +1492,9 @@ func (frReceiver *FlowRetransmitReceiverNode) handleLayerMsg(layerMsg *layerMsg)
 
 	// save a part of layer
 	layerSrc.DataSize += layerMsg.LayerSrc.DataSize
-	partialData := layerMsg.LayerSrc.InmemData
-	buf := *layerSrc.InmemData
-	copy(buf[layerMsg.LayerSrc.Offset:], *partialData)
+	// partialData := layerMsg.LayerSrc.InmemData
+	// buf := *layerSrc.InmemData
+	// copy(buf[layerMsg.LayerSrc.Offset:], *partialData)
 
 	// store layer
 	frReceiver.layers[layerMsg.LayerID] = layerSrc
