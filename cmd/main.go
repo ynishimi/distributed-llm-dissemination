@@ -32,12 +32,16 @@ func main() {
 	myID := distributor.NodeID(*myID)
 	mode := uint(*mode)
 
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMs
+
+	// log.Logger = log.Output(os.Stderr)
 	if *verbose {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}
+
+	log.Logger = zerolog.New(os.Stderr).With().Timestamp().Int("node", int(myID)).Logger()
 
 	// read JSON files
 	conf, err := ReadJson(*fileName)

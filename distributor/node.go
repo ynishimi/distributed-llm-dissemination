@@ -408,6 +408,7 @@ func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	// checks if the assignment is completed
 	if assignmentSatisfied(leader.assignment, leader.status) {
 		leader.mu.Unlock()
+		log.Info().Msg("timer stop: startup")
 		leader.sendStartup()
 		// notify the assignment to be ready
 		leader.readyChan <- leader.assignment
@@ -739,9 +740,9 @@ func (prLeader *PullRetransmitLeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	if !prLeader.nodeCompletionStatus[ackMsg.SrcID] && assignmentSatisfied(prLeader.assignment, prLeader.status) {
 		prLeader.nodeCompletionStatus[ackMsg.SrcID] = true
 		prLeader.mu.Unlock()
+		log.Info().Msg("timer stop: startup")
 		prLeader.sendStartup()
 		// notify the assignment to be ready
-		log.Info().Uint("id", uint(prLeader.GetMyID())).Msgf("startup")
 		prLeader.readyChan <- prLeader.assignment
 	} else {
 		prLeader.mu.Unlock()
@@ -1146,16 +1147,29 @@ func (frleader *FlowRetransmitLeaderNode) handleAnnounceMsg(announceMsg *announc
 
 	// start sending layers
 	frleader.startDistributionChan <- a
+	log.Info().Msg("timer start")
 	time, jobsMap := frleader.assignJobs()
 	frleader.sendLayers(time, jobsMap)
 }
 
 func (frleader *FlowRetransmitLeaderNode) handleFlowRetransmitMsg(frMsg *flowRetransmitMsg) error {
 	t0 := time.Now()
+	log.Info().
+		Uint("layer", uint(frMsg.LayerID)).
+		Uint("dest", uint(frMsg.DestID)).
+		Int64("size[MB]", frMsg.DataSize>>20).
+		Int64("expected_throughput[MiB/s]", frMsg.Rate>>20).
+		Msg("start sending layer")
+
 	err := handleFlowRetransmit(frleader.node, frleader.layers, &frleader.mu, frleader.fetchFromClient, frMsg)
 	t1 := time.Since(t0)
 
-	log.Info().Dur("transmission time", t1).Msg("Job assignment completed")
+	log.Info().
+		Uint("layer", uint(frMsg.LayerID)).
+		Uint("dest", uint(frMsg.DestID)).
+		Dur("send_dur", t1).
+		Int64("throughput[MiB/s]", frMsg.DataSize/t1.Milliseconds()*1000>>20).
+		Msg("finished sending layer")
 	return err
 }
 
@@ -1484,11 +1498,15 @@ func (frReceiver *FlowRetransmitReceiverNode) handleLayerMsg(layerMsg *layerMsg)
 
 	// store layer
 	frReceiver.layers[layerMsg.LayerID] = layerSrc
-	log.Debug().Msgf("saved layer %v in memory", layerMsg.LayerID)
+	// log.Debug().Msgf("saved layer %v in memory", layerMsg.LayerID)
 
 	log.Info().Msgf("l%d downloaded (%d B / %d B)", layerMsg.LayerID, layerSrc.DataSize, layerMsg.TotalSize)
 
 	if layerSrc.DataSize == layerMsg.TotalSize {
+		log.Info().
+			Uint("layer", uint(layerMsg.LayerID)).
+			Int64("total_bytes", layerMsg.TotalSize).
+			Msg("layer fully received")
 		// send ack to leader
 		ackMsg := NewAckMsg(frReceiver.node.GetMyID(), layerMsg.LayerID, layerSrc.Meta.Location)
 		err := frReceiver.GetTransport().Send(frReceiver.getLeader(), ackMsg)
@@ -1498,8 +1516,26 @@ func (frReceiver *FlowRetransmitReceiverNode) handleLayerMsg(layerMsg *layerMsg)
 	}
 }
 
-func (frReceiver *FlowRetransmitReceiverNode) handleFlowRetransmitMsg(frMsg *flowRetransmitMsg) {
-	handleFlowRetransmit(frReceiver.node, frReceiver.layers, &frReceiver.mu, frReceiver.fetchFromClient, frMsg)
+func (frReceiver *FlowRetransmitReceiverNode) handleFlowRetransmitMsg(frMsg *flowRetransmitMsg) error {
+	t0 := time.Now()
+	log.Info().
+		Uint("layer", uint(frMsg.LayerID)).
+		Uint("dest", uint(frMsg.DestID)).
+		Int64("size", frMsg.DataSize).
+		Int64("rate", frMsg.Rate).
+		Msg("start sending layer")
+
+	err := handleFlowRetransmit(frReceiver.node, frReceiver.layers, &frReceiver.mu, frReceiver.fetchFromClient, frMsg)
+
+	t1 := time.Since(t0)
+
+	log.Info().
+		Uint("layer", uint(frMsg.LayerID)).
+		Uint("dest", uint(frMsg.DestID)).
+		Dur("send_dur", t1).
+		Int64("throughput[MiB/s]", frMsg.DataSize/t1.Milliseconds()*1000>>20).
+		Msg("finished sending layer")
+	return err
 }
 
 // handleFlowRetransmit sends a (part of) layer to the receiver.

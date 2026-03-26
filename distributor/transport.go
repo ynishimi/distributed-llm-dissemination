@@ -415,7 +415,7 @@ func (t *TcpTransport) getAndUnregisterPipe(layerID LayerID) (*protectedConn, bo
 
 	destID, ok := t.pipes[layerID]
 	if !ok {
-		log.Info().Msgf("pipe not exist for layer %v", layerID)
+		log.Debug().Msgf("pipe not exist for layer %v", layerID)
 		t.mu.Unlock()
 		return nil, false
 	}
