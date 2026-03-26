@@ -30,7 +30,7 @@
         },
         {
             "Id": 1,
-            "Addr": ":8081",
+            "Addr": ":8080",
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "InitialLayers": {
@@ -54,35 +54,35 @@
         },
         {
             "Id": 2,
-            "Addr": ":8082",
+            "Addr": ":8080",
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "InitialLayers": {}
         },
         {
             "Id": 3,
-            "Addr": ":8083",
+            "Addr": ":8080",
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "InitialLayers": {}
         },
         {
             "Id": 4,
-            "Addr": ":8084",
+            "Addr": ":8080",
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "InitialLayers": {}
         },
         {
             "Id": 5,
-            "Addr": ":8085",
+            "Addr": ":8080",
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "InitialLayers": {}
         },
         {
             "Id": 6,
-            "Addr": ":8086",
+            "Addr": ":8080",
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "InitialLayers": {}
