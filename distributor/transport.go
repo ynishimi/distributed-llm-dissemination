@@ -264,6 +264,16 @@ func (t *TcpTransport) Send(destID NodeID, message Message) error {
 		return fmt.Errorf("addr of %d does not exist", destID)
 	}
 
+	// for layerMsg, creates a new connection (to make use of parallelism)
+	if layerMsg, ok := message.(*layerMsg); ok {
+		conn, err := net.Dial("tcp", dest)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		return t.sendLayerMsg(conn, layerMsg)
+	}
+
 	conn, err := t.getOrConnect(dest)
 	if err != nil {
 		return fmt.Errorf("failed to connect to %v: %w", dest, err)
@@ -295,101 +305,103 @@ func (t *TcpTransport) Broadcast(message Message) error {
 	return nil
 }
 
+func (t *TcpTransport) sendLayerMsg(conn net.Conn, layerMsg *layerMsg) error {
+
+	// sends header and layer separately for avoiding unnecesary memory occupation due to decoding
+	header := tempLayerInfo{layerMsg.SrcID, layerMsg.LayerID, layerMsg.LayerSrc.DataSize, layerMsg.TotalSize, layerMsg.LayerSrc.Offset}
+
+	// sends header first
+	marshaledHdr, err := json.Marshal(header)
+	if err != nil {
+		return err
+	}
+	transportMsg := TransportMsg{
+		Type:    layerMsg.Type(),
+		Src:     layerMsg.Src(),
+		Payload: marshaledHdr,
+	}
+	marshaledTransportHdr, err := json.Marshal(transportMsg)
+	if err != nil {
+		return err
+	}
+
+	_, err = conn.Write(marshaledTransportHdr)
+	if err != nil {
+		return err
+	}
+
+	if inmemData := layerMsg.LayerSrc.InmemData; inmemData != nil && layerMsg.LayerSrc.Meta.Location == InmemLayer {
+		// sends layerData directly
+		if t.isClient {
+			err := t.writeWithLimit(layerMsg.LayerSrc.Meta.LimitRate, layerMsg.LayerID, *inmemData, conn)
+			if err != nil {
+				return err
+			}
+		} else {
+			// the node sends a layer to its dest
+			partialData := (*layerMsg.LayerSrc.InmemData)[layerMsg.LayerSrc.Offset : layerMsg.LayerSrc.Offset+layerMsg.LayerSrc.DataSize]
+
+			// _, err = conn.Write(partialData)
+			err := t.writeWithLimit(layerMsg.LayerSrc.Meta.LimitRate, layerMsg.LayerID, partialData, conn)
+
+			if err != nil {
+				return err
+			}
+		}
+	} else if layerMsg.LayerSrc.Meta.Location == DiskLayer {
+		if layerMsg.LayerSrc.Fp == "" {
+			return fmt.Errorf("no data source specified")
+		}
+
+		// the layer is in disk
+		f, err := os.Open(layerMsg.LayerSrc.Fp)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+
+		sr := io.NewSectionReader(f, layerMsg.LayerSrc.Offset, layerMsg.LayerSrc.DataSize)
+
+		// directly send file from disk, using sendFile syscall
+		_, err = io.Copy(conn, sr)
+		return err
+	} else {
+		return fmt.Errorf("unknown error sending layer %v", layerMsg.LayerID)
+	}
+
+	return nil
+}
+
 func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) error {
 	pConn.mu.Lock()
 	defer pConn.mu.Unlock()
 
 	conn := pConn.conn
 
-	if layerMsg, ok := message.(*layerMsg); ok {
-		// sends header and layer separately for avoiding unnecesary memory occupation due to decoding
-		header := tempLayerInfo{layerMsg.SrcID, layerMsg.LayerID, layerMsg.LayerSrc.DataSize, layerMsg.TotalSize, layerMsg.LayerSrc.Offset}
-
-		// sends header first
-		marshaledHdr, err := json.Marshal(header)
-		if err != nil {
-			return err
-		}
-		transportMsg := TransportMsg{
-			Type:    message.Type(),
-			Src:     message.Src(),
-			Payload: marshaledHdr,
-		}
-		marshaledTransportHdr, err := json.Marshal(transportMsg)
-		if err != nil {
-			return err
-		}
-
-		_, err = conn.Write(marshaledTransportHdr)
-		if err != nil {
-			return err
-		}
-
-		if inmemData := layerMsg.LayerSrc.InmemData; inmemData != nil && layerMsg.LayerSrc.Meta.Location == InmemLayer {
-			// sends layerData directly
-			if t.isClient {
-				err := t.writeWithLimit(layerMsg.LayerSrc.Meta.LimitRate, layerMsg.LayerID, *inmemData, conn)
-				if err != nil {
-					return err
-				}
-			} else {
-				// the node sends a layer to its dest
-				partialData := (*layerMsg.LayerSrc.InmemData)[layerMsg.LayerSrc.Offset : layerMsg.LayerSrc.Offset+layerMsg.LayerSrc.DataSize]
-
-				// _, err = conn.Write(partialData)
-				err := t.writeWithLimit(layerMsg.LayerSrc.Meta.LimitRate, layerMsg.LayerID, partialData, conn)
-
-				if err != nil {
-					return err
-				}
-			}
-		} else if layerMsg.LayerSrc.Meta.Location == DiskLayer {
-			if layerMsg.LayerSrc.Fp == "" {
-				return fmt.Errorf("no data source specified")
-			}
-
-			// the layer is in disk
-			f, err := os.Open(layerMsg.LayerSrc.Fp)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-
-			sr := io.NewSectionReader(f, layerMsg.LayerSrc.Offset, layerMsg.LayerSrc.DataSize)
-
-			// directly send file from disk, using sendFile syscall
-			_, err = io.Copy(conn, sr)
-			return err
-		} else {
-			return fmt.Errorf("unknown error sending layer %v", layerMsg.LayerID)
-		}
-
-		return nil
-	} else {
-		// sends encoded TransportMsg
-		marshaledMsg, err := json.Marshal(message)
-		if err != nil {
-			return err
-		}
-
-		transportMsg := TransportMsg{
-			Type:    message.Type(),
-			Src:     message.Src(),
-			Payload: marshaledMsg,
-		}
-
-		marshaledTransportMsg, err := json.Marshal(transportMsg)
-		if err != nil {
-			return err
-		}
-
-		_, err = conn.Write(marshaledTransportMsg)
-		if err != nil {
-			return err
-		}
-
-		return nil
+	// sends encoded TransportMsg
+	marshaledMsg, err := json.Marshal(message)
+	if err != nil {
+		return err
 	}
+
+	transportMsg := TransportMsg{
+		Type:    message.Type(),
+		Src:     message.Src(),
+		Payload: marshaledMsg,
+	}
+
+	marshaledTransportMsg, err := json.Marshal(transportMsg)
+	if err != nil {
+		return err
+	}
+
+	_, err = conn.Write(marshaledTransportMsg)
+	if err != nil {
+		return err
+	}
+
+	return nil
+
 }
 
 func (t *TcpTransport) writeWithLimit(limitRate int64, layerID LayerID, data LayerData, conn net.Conn) error {
