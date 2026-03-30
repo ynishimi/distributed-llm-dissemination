@@ -1527,18 +1527,19 @@ func (frReceiver *FlowRetransmitReceiverNode) handleLayerMsg(layerMsg *layerMsg)
 		}
 	}
 
-	// save a part of layer
-	layerSrc.DataSize += layerMsg.LayerSrc.DataSize
-	// partialData := layerMsg.LayerSrc.InmemData
-	// buf := *layerSrc.InmemData
-	// copy(buf[layerMsg.LayerSrc.Offset:], *partialData)
+	if layerSrc.DataSize < layerMsg.TotalSize {
+		// save a part of layer
+		layerSrc.DataSize += layerMsg.LayerSrc.DataSize
+		// partialData := layerMsg.LayerSrc.InmemData
+		// buf := *layerSrc.InmemData
+		// copy(buf[layerMsg.LayerSrc.Offset:], *partialData)
 
-	// store layer
-	frReceiver.layers[layerMsg.LayerID] = layerSrc
-	// log.Debug().Msgf("saved layer %v in memory", layerMsg.LayerID)
+		// store layer
+		frReceiver.layers[layerMsg.LayerID] = layerSrc
+		// log.Debug().Msgf("saved layer %v in memory", layerMsg.LayerID)
 
-	log.Info().Msgf("l%d downloaded (%d B / %d B)", layerMsg.LayerID, layerSrc.DataSize, layerMsg.TotalSize)
-
+		log.Info().Msgf("l%d downloaded (%d B / %d B)", layerMsg.LayerID, layerSrc.DataSize, layerMsg.TotalSize)
+	}
 	if layerSrc.DataSize == layerMsg.TotalSize {
 		log.Info().
 			Uint("layer", uint(layerMsg.LayerID)).
