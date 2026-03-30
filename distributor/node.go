@@ -2,6 +2,7 @@ package distributor
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"math"
 	"slices"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"golang.org/x/time/rate"
 )
 
 // node interface has its ID.
@@ -1148,8 +1150,8 @@ func (frleader *FlowRetransmitLeaderNode) handleAnnounceMsg(announceMsg *announc
 	// start sending layers
 	frleader.startDistributionChan <- a
 	log.Info().Msg("timer start")
-	time, jobsMap := frleader.assignJobs()
-	frleader.sendLayers(time, jobsMap)
+	time, selfJobsMap, jobsMap := frleader.assignJobs()
+	frleader.sendLayers(time, selfJobsMap, jobsMap)
 }
 
 func (frleader *FlowRetransmitLeaderNode) handleFlowRetransmitMsg(frMsg *flowRetransmitMsg) error {
@@ -1184,20 +1186,55 @@ func (frleader *FlowRetransmitLeaderNode) handleFlowRetransmitMsg(frMsg *flowRet
 // }
 
 // assignJobs iterates through the assignment and creates an assignments of jobs.
-func (frleader *FlowRetransmitLeaderNode) assignJobs() (int64, flowJobInfosMap) {
+func (frleader *FlowRetransmitLeaderNode) assignJobs() (t int64, selfJobsMap, jobsMap flowJobInfosMap) {
+	// divide jobs into self-assignment and others
+	selfJobsMap = make(flowJobInfosMap)
+	modifiedAssignment := make(Assignment)
+
+	for destID, layerIDs := range frleader.assignment {
+		for layerID, meta := range layerIDs {
+			// if the destination has the layer in its client, directly send the layer from the client to the node
+			if _, ok := frleader.status[destID][layerID]; ok {
+				selfJobsMap[destID] = append(selfJobsMap[destID], flowJobInfo{destID, layerID, frleader.layers[layerID].DataSize, 0})
+			} else {
+				if _, ok := modifiedAssignment[destID]; !ok {
+					modifiedAssignment[destID] = make(LayerIDs)
+				}
+				modifiedAssignment[destID][layerID] = meta
+			}
+		}
+	}
+
+	// skip flow calculation if no jobs to assign
+	if len(modifiedAssignment) == 0 {
+		log.Info().Msg("No jobs to assign other than self-assignment")
+		return 0, selfJobsMap, make(flowJobInfosMap)
+	}
+
 	t0 := time.Now()
-	g := frleader.newFlowGraph()
-	t, jobsMap := g.getJobAssignment()
+	g := frleader.newFlowGraph(modifiedAssignment)
+	t, jobsMap = g.getJobAssignment()
 
 	t1 := time.Since(t0)
 
 	log.Info().Dur("computation time", t1).Msg("Job assignment completed")
 
-	return t, jobsMap
+	return t, selfJobsMap, jobsMap
 }
 
 // This time, the leader node dispatches jobs using flowJobsMap.
-func (frleader *FlowRetransmitLeaderNode) sendLayers(minTime int64, jobsMap flowJobInfosMap) {
+func (frleader *FlowRetransmitLeaderNode) sendLayers(minTime int64, selfJobsMap, jobsMap flowJobInfosMap) {
+	// self-assignment
+	for _, jobInfos := range selfJobsMap {
+		for _, job := range jobInfos {
+			rate := frleader.status[job.senderID][job.layerID].LimitRate
+			frMsg := NewFlowRetransmitMsg(
+				frleader.node.GetMyID(), job.layerID, job.senderID,
+				job.dataSize, job.offset, rate)
+			frleader.GetTransport().Send(job.senderID, frMsg)
+		}
+	}
+
 	// for each sender, assign jobs from jobInfos slice
 	for _, jobInfos := range jobsMap {
 		for _, jobInfo := range jobInfos {
@@ -1555,9 +1592,34 @@ func handleFlowRetransmit(n node, layers Layers, mu *sync.RWMutex, fetchFromClie
 		partialLayerSrc.Offset = frMsg.Offset
 		partialLayerSrc.Meta.LimitRate = frMsg.Rate
 
-	// todo: client cannot be used for now
-	// case ClientLayer:
-	// 	return fetchFromClient(frMsg.LayerID, frMsg.DestID)
+		// This happens only if the node should receive a layer from its client.
+		// For implementation wise, directly load it
+	case ClientLayer:
+		go func() {
+			data := *layerSrc.InmemData
+			partial := data[frMsg.Offset : frMsg.Offset+frMsg.DataSize]
+
+			const BucketSize = 256 * 1024
+			limiter := rate.NewLimiter(rate.Limit(frMsg.Rate), BucketSize)
+			buf := make(LayerData, len(partial))
+			pos := 0
+			for pos < len(partial) {
+				n := min(len(partial)-pos, limiter.Burst())
+				limiter.WaitN(context.Background(), n)
+				copy(buf[pos:], partial[pos:pos+n])
+				pos += n
+			}
+
+			partialLayerSrc := LayerSrc{
+				InmemData: &buf,
+				DataSize:  frMsg.DataSize,
+				Offset:    frMsg.Offset,
+				Meta:      LayerMeta{Location: InmemLayer},
+			}
+			localMsg := NewLayerMsg(n.GetMyID(), frMsg.LayerID, partialLayerSrc, layerSrc.DataSize)
+			n.GetTransport().(*TcpTransport).incomingMsgChan <- localMsg
+		}()
+		return nil
 
 	default:
 		log.Error().Msg("unknown location")

@@ -50,11 +50,11 @@ type flowGraph struct {
 	maxFlow            int64
 }
 
-func (frleader *FlowRetransmitLeaderNode) newFlowGraph() *flowGraph {
+func (frleader *FlowRetransmitLeaderNode) newFlowGraph(assignment Assignment) *flowGraph {
 	// counts num of assignmentLayerIDs across the assignment
 	assignmentLayerIDs := make(LayerIDs)
 
-	for _, layerIDs := range frleader.assignment {
+	for _, layerIDs := range assignment {
 		for layerID := range layerIDs {
 			if meta, ok := assignmentLayerIDs[layerID]; !ok {
 				assignmentLayerIDs[layerID] = meta
@@ -90,7 +90,7 @@ func (frleader *FlowRetransmitLeaderNode) newFlowGraph() *flowGraph {
 	}
 
 	// 3. layer to receiver
-	for _, nodeID := range slices.Sorted(maps.Keys(frleader.assignment)) {
+	for _, nodeID := range slices.Sorted(maps.Keys(assignment)) {
 		receiver := flowNode{kind: kindReceiver, nodeID: nodeID}
 		addIndex(receiver)
 	}
@@ -107,7 +107,7 @@ func (frleader *FlowRetransmitLeaderNode) newFlowGraph() *flowGraph {
 
 	g := flowGraph{
 		adjMatrix:          adjMatrix,
-		assignment:         frleader.assignment,
+		assignment:         assignment,
 		status:             frleader.status,
 		layers:             frleader.layers,
 		nodeNetworkBW:      frleader.NodeNetworkBW,
