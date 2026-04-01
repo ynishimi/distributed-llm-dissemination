@@ -216,7 +216,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			Int("layer_size", int(temp.LayerSize)).
 			Int("total_size", int(temp.TotalSize)).
 			Dur("duration[ms]", t1).
-			Msg("layer received")
+			Msg("(a franction of) layer received")
 		// fixme: all the fraction of the layers are once saved in the buf and then copied again
 		layerSrc := LayerSrc{&buf, "", int64(len(buf)), 0, LayerMeta{Location: InmemLayer}}
 		t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc, temp.TotalSize}

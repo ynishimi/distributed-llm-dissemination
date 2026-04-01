@@ -1525,7 +1525,8 @@ func (frReceiver *FlowRetransmitReceiverNode) handleLayerMsg(layerMsg *layerMsg)
 
 	layerSrc, ok := frReceiver.layers[layerMsg.LayerID]
 	if !ok {
-		data := make(LayerData, layerMsg.TotalSize)
+		// data := make(LayerData, layerMsg.TotalSize)
+		data := make(LayerData, 0)
 		// initialize layerSrc
 		layerSrc = LayerSrc{
 			InmemData: &data,
