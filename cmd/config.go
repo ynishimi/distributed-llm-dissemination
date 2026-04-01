@@ -27,13 +27,12 @@ type NodeConf struct {
 	InitialLayers InitialLayers
 }
 
-type InitialLayers map[distributor.LayerID]InitLayersBySource
+type InitialLayers map[distributor.SourceType]InitLayersBySource
 
-type InitLayersBySource map[distributor.SourceType]InitialLayerConf
+type InitLayersBySource map[distributor.LayerID]InitialLayerConf
 
 type InitialLayerConf struct {
 	LayerSize int64
-	Source    distributor.SourceType
 }
 
 // set of LayerIDs for clients
@@ -95,8 +94,8 @@ func GetClientConf(conf *config, node distributor.NodeID) (*ClientConf, error) {
 func CreateLayers(myConf NodeConf, saveDisk bool) distributor.LayersSrc {
 	layers := make(distributor.LayersSrc)
 
-	for layerID, layersBySource := range myConf.InitialLayers {
-		for sourceType, initialLayerConf := range layersBySource {
+	for sourceType, layersBySource := range myConf.InitialLayers {
+		for layerID, initialLayerConf := range layersBySource {
 			currentLayerSize := initialLayerConf.LayerSize
 			if currentLayerSize < 0 {
 				currentLayerSize = 0

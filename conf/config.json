@@ -2,16 +2,12 @@
     "Nodes": [
         {
             "Id": 0,
-            "Addr": "172.31.16.66:8080",
+            "Addr": ":8080",
             "NetworkBW": 1562500000,
             "IsLeader": true,
             "Sources": {
-                "0": {
-                    "LimitRate": 16257500
-                },
-                "1": {
-                    "LimitRate": 209715200
-                }
+                "0": 16257500,
+                "1": 209715200
             },
             "InitialLayers": {
                 "1": {
@@ -44,16 +40,12 @@
         },
         {
             "Id": 1,
-            "Addr": "172.31.31.210:8080",
+            "Addr": ":8081",
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "Sources": {
-                "0": {
-                    "LimitRate": 16257500
-                },
-                "1": {
-                    "LimitRate": 209715200
-                }
+                "0": 16257500,
+                "1": 209715200
             },
             "InitialLayers": {
                 "1": {
@@ -86,16 +78,12 @@
         },
         {
             "Id": 2,
-            "Addr": "172.31.19.168:8080",
+            "Addr": ":8082",
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "Sources": {
-                "0": {
-                    "LimitRate": 16257500
-                },
-                "1": {
-                    "LimitRate": 209715200
-                }
+                "0": 16257500,
+                "1": 209715200
             },
             "InitialLayers": {
                 "1": {
@@ -128,16 +116,12 @@
         },
         {
             "Id": 3,
-            "Addr": "172.31.27.175:8080",
+            "Addr": ":8083",
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "Sources": {
-                "0": {
-                    "LimitRate": 16257500
-                },
-                "1": {
-                    "LimitRate": 209715200
-                }
+                "0": 16257500,
+                "1": 209715200
             },
             "InitialLayers": {
                 "1": {
@@ -170,16 +154,12 @@
         },
         {
             "Id": 4,
-            "Addr": "172.31.30.108:8080",
+            "Addr": ":8084",
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "Sources": {
-                "0": {
-                    "LimitRate": 16257500
-                },
-                "1": {
-                    "LimitRate": 209715200
-                }
+                "0": 16257500,
+                "1": 209715200
             },
             "InitialLayers": {
                 "1": {
@@ -212,16 +192,12 @@
         },
         {
             "Id": 5,
-            "Addr": "172.31.31.173:8080",
+            "Addr": ":8085",
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "Sources": {
-                "0": {
-                    "LimitRate": 16257500
-                },
-                "1": {
-                    "LimitRate": 209715200
-                }
+                "0": 16257500,
+                "1": 209715200
             },
             "InitialLayers": {
                 "1": {
@@ -254,16 +230,12 @@
         },
         {
             "Id": 6,
-            "Addr": "172.31.16.205:8080",
+            "Addr": ":8086",
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "Sources": {
-                "0": {
-                    "LimitRate": 16257500
-                },
-                "1": {
-                    "LimitRate": 209715200
-                }
+                "0": 16257500,
+                "1": 209715200
             },
             "InitialLayers": {
                 "1": {
@@ -296,7 +268,7 @@
         },
         {
             "Id": 7,
-            "Addr": "172.31.21.175:8080",
+            "Addr": ":8087",
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "InitialLayers": {}

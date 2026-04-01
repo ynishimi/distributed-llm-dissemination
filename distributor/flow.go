@@ -248,7 +248,8 @@ func (g *flowGraph) buildEdgeCapacity(time int64) {
 			layer := flowNode{kind: kindLayer, layerID: layerID}
 
 			g.addEdge(g.idx[sender], g.idx[client], meta.LimitRate*time)
-			g.addEdge(g.idx[client], g.idx[layer], g.layers[layerID].DataSize)
+			// One layer can be distributed to multiple receivers; do not cap by single layer size
+			g.addEdge(g.idx[client], g.idx[layer], math.MaxInt64)
 		}
 	}
 
