@@ -2,146 +2,308 @@
     "Nodes": [
         {
             "Id": 0,
-            "Addr": ":8080",
+            "Addr": "172.31.16.66:8080",
             "NetworkBW": 1562500000,
             "IsLeader": true,
-            "InitialLayers": {
+            "Sources": {
                 "0": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 31457280
+                    "LimitRate": 16257500
                 },
                 "1": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 31457280
-                },
-                "2": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 31457280
-                },
-                "3": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 31457280
-                },
-                "4": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 31457280
-                },
-                "5": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 31457280
-                },
-                "6": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 31457280
-                },
-                "7": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 31457280
-                },
-                "8": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 31457280
+                    "LimitRate": 209715200
+                }
+            },
+            "InitialLayers": {
+                "1": {
+                    "0": {
+                        "LayerSize": 10930691768
+                    },
+                    "1": {
+                        "LayerSize": 10930691768
+                    },
+                    "2": {
+                        "LayerSize": 10930691768
+                    },
+                    "3": {
+                        "LayerSize": 10930691768
+                    },
+                    "4": {
+                        "LayerSize": 10930691768
+                    },
+                    "5": {
+                        "LayerSize": 10930691768
+                    },
+                    "6": {
+                        "LayerSize": 10930691768
+                    },
+                    "7": {
+                        "LayerSize": 10930691768
+                    }
                 }
             }
         },
         {
             "Id": 1,
-            "Addr": ":8080",
+            "Addr": "172.31.31.210:8080",
             "NetworkBW": 1562500000,
             "IsLeader": false,
-            "InitialLayers": {
+            "Sources": {
                 "0": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
+                    "LimitRate": 16257500
                 },
                 "1": {
-                    "LayerSize": 1950630980,
                     "LimitRate": 209715200
-                },
-                "2": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
-                },
-                "3": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
-                },
-                "4": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
-                },
-                "5": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
-                },
-                "6": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
-                },
-                "7": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
-                },
-                "8": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
+                }
+            },
+            "InitialLayers": {
+                "1": {
+                    "0": {
+                        "LayerSize": 10930691768
+                    },
+                    "1": {
+                        "LayerSize": 10930691768
+                    },
+                    "2": {
+                        "LayerSize": 10930691768
+                    },
+                    "3": {
+                        "LayerSize": 10930691768
+                    },
+                    "4": {
+                        "LayerSize": 10930691768
+                    },
+                    "5": {
+                        "LayerSize": 10930691768
+                    },
+                    "6": {
+                        "LayerSize": 10930691768
+                    },
+                    "7": {
+                        "LayerSize": 10930691768
+                    }
                 }
             }
         },
         {
             "Id": 2,
-            "Addr": ":8080",
+            "Addr": "172.31.19.168:8080",
             "NetworkBW": 1562500000,
             "IsLeader": false,
-            "InitialLayers": {
+            "Sources": {
                 "0": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
+                    "LimitRate": 16257500
                 },
                 "1": {
-                    "LayerSize": 1950630980,
                     "LimitRate": 209715200
-                },
-                "2": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
-                },
-                "3": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
-                },
-                "4": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
-                },
-                "5": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
-                },
-                "6": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
-                },
-                "7": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
-                },
-                "8": {
-                    "LayerSize": 1950630980,
-                    "LimitRate": 209715200
+                }
+            },
+            "InitialLayers": {
+                "1": {
+                    "0": {
+                        "LayerSize": 10930691768
+                    },
+                    "1": {
+                        "LayerSize": 10930691768
+                    },
+                    "2": {
+                        "LayerSize": 10930691768
+                    },
+                    "3": {
+                        "LayerSize": 10930691768
+                    },
+                    "4": {
+                        "LayerSize": 10930691768
+                    },
+                    "5": {
+                        "LayerSize": 10930691768
+                    },
+                    "6": {
+                        "LayerSize": 10930691768
+                    },
+                    "7": {
+                        "LayerSize": 10930691768
+                    }
                 }
             }
         },
         {
             "Id": 3,
-            "Addr": ":8080",
+            "Addr": "172.31.27.175:8080",
+            "NetworkBW": 1562500000,
+            "IsLeader": false,
+            "Sources": {
+                "0": {
+                    "LimitRate": 16257500
+                },
+                "1": {
+                    "LimitRate": 209715200
+                }
+            },
+            "InitialLayers": {
+                "1": {
+                    "0": {
+                        "LayerSize": 10930691768
+                    },
+                    "1": {
+                        "LayerSize": 10930691768
+                    },
+                    "2": {
+                        "LayerSize": 10930691768
+                    },
+                    "3": {
+                        "LayerSize": 10930691768
+                    },
+                    "4": {
+                        "LayerSize": 10930691768
+                    },
+                    "5": {
+                        "LayerSize": 10930691768
+                    },
+                    "6": {
+                        "LayerSize": 10930691768
+                    },
+                    "7": {
+                        "LayerSize": 10930691768
+                    }
+                }
+            }
+        },
+        {
+            "Id": 4,
+            "Addr": "172.31.30.108:8080",
+            "NetworkBW": 1562500000,
+            "IsLeader": false,
+            "Sources": {
+                "0": {
+                    "LimitRate": 16257500
+                },
+                "1": {
+                    "LimitRate": 209715200
+                }
+            },
+            "InitialLayers": {
+                "1": {
+                    "0": {
+                        "LayerSize": 10930691768
+                    },
+                    "1": {
+                        "LayerSize": 10930691768
+                    },
+                    "2": {
+                        "LayerSize": 10930691768
+                    },
+                    "3": {
+                        "LayerSize": 10930691768
+                    },
+                    "4": {
+                        "LayerSize": 10930691768
+                    },
+                    "5": {
+                        "LayerSize": 10930691768
+                    },
+                    "6": {
+                        "LayerSize": 10930691768
+                    },
+                    "7": {
+                        "LayerSize": 10930691768
+                    }
+                }
+            }
+        },
+        {
+            "Id": 5,
+            "Addr": "172.31.31.173:8080",
+            "NetworkBW": 1562500000,
+            "IsLeader": false,
+            "Sources": {
+                "0": {
+                    "LimitRate": 16257500
+                },
+                "1": {
+                    "LimitRate": 209715200
+                }
+            },
+            "InitialLayers": {
+                "1": {
+                    "0": {
+                        "LayerSize": 10930691768
+                    },
+                    "1": {
+                        "LayerSize": 10930691768
+                    },
+                    "2": {
+                        "LayerSize": 10930691768
+                    },
+                    "3": {
+                        "LayerSize": 10930691768
+                    },
+                    "4": {
+                        "LayerSize": 10930691768
+                    },
+                    "5": {
+                        "LayerSize": 10930691768
+                    },
+                    "6": {
+                        "LayerSize": 10930691768
+                    },
+                    "7": {
+                        "LayerSize": 10930691768
+                    }
+                }
+            }
+        },
+        {
+            "Id": 6,
+            "Addr": "172.31.16.205:8080",
+            "NetworkBW": 1562500000,
+            "IsLeader": false,
+            "Sources": {
+                "0": {
+                    "LimitRate": 16257500
+                },
+                "1": {
+                    "LimitRate": 209715200
+                }
+            },
+            "InitialLayers": {
+                "1": {
+                    "0": {
+                        "LayerSize": 10930691768
+                    },
+                    "1": {
+                        "LayerSize": 10930691768
+                    },
+                    "2": {
+                        "LayerSize": 10930691768
+                    },
+                    "3": {
+                        "LayerSize": 10930691768
+                    },
+                    "4": {
+                        "LayerSize": 10930691768
+                    },
+                    "5": {
+                        "LayerSize": 10930691768
+                    },
+                    "6": {
+                        "LayerSize": 10930691768
+                    },
+                    "7": {
+                        "LayerSize": 10930691768
+                    }
+                }
+            }
+        },
+        {
+            "Id": 7,
+            "Addr": "172.31.21.175:8080",
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "InitialLayers": {}
         }
     ],
     "Assignment": {
-        "3": {
+        "7": {
             "0": {},
             "1": {},
             "2": {},
@@ -149,8 +311,7 @@
             "4": {},
             "5": {},
             "6": {},
-            "7": {},
-            "8": {}
+            "7": {}
         }
     }
 }

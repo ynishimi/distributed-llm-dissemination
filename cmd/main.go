@@ -82,7 +82,7 @@ func main() {
 			return
 		}
 
-		layers := make(distributor.Layers)
+		layers := make(distributor.LayersSrc)
 		for layerID, rateLimit := range myClientConf.LayersRateLimit {
 			layers[layerID] = CreateClientLayer(layerID, conf.LayerSize, rateLimit)
 		}
@@ -146,7 +146,7 @@ func main() {
 
 }
 
-func RunLeader(myID distributor.NodeID, n *distributor.N, t distributor.Transport, layers distributor.Layers, assignment distributor.Assignment, nodeNetworkBW map[distributor.NodeID]int64, mode uint) error {
+func RunLeader(myID distributor.NodeID, n *distributor.N, t distributor.Transport, layers distributor.LayersSrc, assignment distributor.Assignment, nodeNetworkBW map[distributor.NodeID]int64, mode uint) error {
 	fmt.Printf("launching leader...\n[addr: %s, id: %v, filename: %s, storagePath: %v, mode: %v]\n", n.GetTransport().GetAddress(), myID, *fileName, *storagePath, mode)
 
 	var leaderNode distributor.Leader
@@ -180,7 +180,7 @@ func executeLeader(leader distributor.Leader) time.Duration {
 	return t1
 }
 
-func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor.NodeID, t distributor.Transport, layers distributor.Layers, mode uint) error {
+func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor.NodeID, t distributor.Transport, layers distributor.LayersSrc, mode uint) error {
 	fmt.Printf("launching receiver...\n[addr: %s, id: %v, filename: %s, storagePath: %v, mode: %v]\n", n.GetTransport().GetAddress(), myID, *fileName, *storagePath, mode)
 
 	var receiverNode distributor.Receiver
@@ -214,7 +214,7 @@ func executeReceiver(receiver distributor.Receiver) error {
 	return nil
 }
 
-func RunClient(nodeID distributor.NodeID, t distributor.Transport, layers distributor.Layers) {
+func RunClient(nodeID distributor.NodeID, t distributor.Transport, layers distributor.LayersSrc) {
 	_ = distributor.NewClient(nodeID, t, layers)
 	select {}
 }

@@ -13,12 +13,12 @@ type Client struct {
 	// nodeID is ID of the nodeID the client connects to
 	nodeID NodeID
 	t      Transport
-	layers Layers
+	layers LayersSrc
 	mu     sync.RWMutex
 }
 
 // NewClient creates a client.
-func NewClient(nodeID NodeID, t Transport, layers Layers) *Client {
+func NewClient(nodeID NodeID, t Transport, layers LayersSrc) *Client {
 	c := &Client{
 		nodeID: nodeID,
 		t:      t,

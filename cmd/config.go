@@ -23,15 +23,18 @@ type NodeConf struct {
 	Addr          string
 	NetworkBW     int64
 	IsLeader      bool
+	Sources       map[distributor.SourceType]int64
 	InitialLayers InitialLayers
 }
 
+type InitialLayers map[distributor.LayerID]InitLayersBySource
+
+type InitLayersBySource map[distributor.SourceType]InitialLayerConf
+
 type InitialLayerConf struct {
 	LayerSize int64
-	LimitRate int64
+	Source    distributor.SourceType
 }
-
-type InitialLayers map[distributor.LayerID]InitialLayerConf
 
 // set of LayerIDs for clients
 type LayerIDsRateLimit map[distributor.LayerID]int64
@@ -89,30 +92,32 @@ func GetClientConf(conf *config, node distributor.NodeID) (*ClientConf, error) {
 	return nil, fmt.Errorf("no client found")
 }
 
-func CreateLayers(myConf NodeConf, saveDisk bool) distributor.Layers {
-	layers := make(distributor.Layers)
+func CreateLayers(myConf NodeConf, saveDisk bool) distributor.LayersSrc {
+	layers := make(distributor.LayersSrc)
 
-	for layerID, initialLayerConf := range myConf.InitialLayers {
-		currentLayerSize := initialLayerConf.LayerSize
-		if currentLayerSize < 0 {
-			currentLayerSize = 0
-		}
+	for layerID, layersBySource := range myConf.InitialLayers {
+		for sourceType, initialLayerConf := range layersBySource {
+			currentLayerSize := initialLayerConf.LayerSize
+			if currentLayerSize < 0 {
+				currentLayerSize = 0
+			}
 
-		var layerSrc distributor.LayerSrc
-		if saveDisk {
-			layerSrc = CreateDiskLayer(myConf.ID, layerID, currentLayerSize, *storagePath)
-		} else {
-			layerSrc = CreateInmemLayer(layerID, currentLayerSize)
+			var layerSrc distributor.LayerSrc
+			if saveDisk {
+				layerSrc = CreateDiskLayer(myConf.ID, layerID, currentLayerSize, *storagePath)
+			} else {
+				layerSrc = CreateInmemLayer(layerID, currentLayerSize)
+			}
+			layerSrc.DataSize = currentLayerSize
+			layerSrc.Meta.LimitRate = myConf.Sources[sourceType]
+			layers[layerID] = layerSrc
 		}
-		layerSrc.DataSize = currentLayerSize
-		layerSrc.Meta.LimitRate = initialLayerConf.LimitRate
-		layers[layerID] = layerSrc
 	}
 
 	return layers
 }
 
-func AddClientLayers(clientConf *ClientConf, layerSize int64, layers distributor.Layers) distributor.Layers {
+func AddClientLayers(clientConf *ClientConf, layerSize int64, layers distributor.LayersSrc) distributor.LayersSrc {
 	for layerID, limitRate := range clientConf.LayersRateLimit {
 		if _, ok := layers[layerID]; ok {
 			// already in memory/disk

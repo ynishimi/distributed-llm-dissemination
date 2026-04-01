@@ -14,15 +14,17 @@ type flowNodeKind int
 const (
 	kindSource flowNodeKind = iota
 	kindSender
+	kindClient
 	kindLayer
 	kindReceiver
 	kindSink
 )
 
 type flowNode struct {
-	kind    flowNodeKind
-	nodeID  NodeID
-	layerID LayerID
+	kind       flowNodeKind
+	nodeID     NodeID
+	layerID    LayerID
+	sourceType SourceType
 }
 
 type flowJobInfo struct {
@@ -42,7 +44,7 @@ type flowGraph struct {
 	adjMatrix          [][]int64
 	assignment         Assignment
 	status             status
-	layers             Layers
+	layers             LayersSrc
 	nodeNetworkBW      map[NodeID]int64
 	assignmentLayerIDs LayerIDs
 	idx                map[flowNode]int
@@ -75,30 +77,51 @@ func (frleader *FlowRetransmitLeaderNode) newFlowGraph(assignment Assignment) *f
 	}
 
 	// add idx
-	// 1. src to sender
+	// 1. src
 	src := flowNode{kind: kindSource}
 	addIndex(src)
 
-	// 2. sender to layer
+	// 2. sender
 	for _, nodeID := range slices.Sorted(maps.Keys(frleader.status)) {
 		sender := flowNode{kind: kindSender, nodeID: nodeID}
 		addIndex(sender)
 	}
+
+	// 3. client(source) for each sender
+	for _, nodeID := range slices.Sorted(maps.Keys(frleader.status)) {
+		sourceSet := make(map[SourceType]struct{})
+		for _, meta := range frleader.status[nodeID] {
+			sourceSet[meta.SourceType] = struct{}{}
+		}
+
+		sources := make([]SourceType, 0, len(sourceSet))
+		for sourceType := range sourceSet {
+			sources = append(sources, sourceType)
+		}
+		slices.Sort(sources)
+
+		for _, sourceType := range sources {
+			client := flowNode{kind: kindClient, nodeID: nodeID, sourceType: sourceType}
+			addIndex(client)
+		}
+	}
+
+	// 4. layer
 	for _, layerID := range slices.Sorted(maps.Keys(assignmentLayerIDs)) {
 		layer := flowNode{kind: kindLayer, layerID: layerID}
 		addIndex(layer)
 	}
 
-	// 3. layer to receiver
+	// 5. receiver
 	for _, nodeID := range slices.Sorted(maps.Keys(assignment)) {
 		receiver := flowNode{kind: kindReceiver, nodeID: nodeID}
 		addIndex(receiver)
 	}
 
-	// 4. receiver to sink
+	// 6. sink
 	addIndex(flowNode{kind: kindSink})
 
-	// numVertex = src + sink + num of nodes + num of layers
+	// numVertex = src + sink + sender + sender-source(client) + layer + receiver
 	numVertex := n
 	adjMatrix := make([][]int64, numVertex)
 	for i := range numVertex {
@@ -172,10 +195,14 @@ func (g *flowGraph) getJobAssignment() (int64, flowJobInfosMap) {
 	layerOffset := make(map[LayerID]int64)
 
 	for senderID, layerIDs := range g.status {
-		for layerID := range layerIDs {
-			sender := flowNode{kind: kindSender, nodeID: senderID}
+		for layerID, meta := range layerIDs {
+			if _, needed := g.assignmentLayerIDs[layerID]; !needed {
+				continue
+			}
+
+			client := flowNode{kind: kindClient, nodeID: senderID, sourceType: meta.SourceType}
 			layer := flowNode{kind: kindLayer, layerID: layerID}
-			flow := g.adjMatrix[g.idx[layer]][g.idx[sender]]
+			flow := g.adjMatrix[g.idx[layer]][g.idx[client]]
 			if flow > 0 {
 				offset := layerOffset[layerID]
 				flowJobs[senderID] = append(flowJobs[senderID], flowJobInfo{senderID, layerID, flow, offset})
@@ -209,16 +236,23 @@ func (g *flowGraph) buildEdgeCapacity(time int64) {
 		g.addEdge(g.idx[src], g.idx[sender], senderNetworkBW*time)
 	}
 
-	// 2. sender to layer
+	// 2. sender to client(source) and 3. client(source) to layer
 	for nodeID, layerIDs := range g.status {
 		sender := flowNode{kind: kindSender, nodeID: nodeID}
 		for layerID, meta := range layerIDs {
+			if _, needed := g.assignmentLayerIDs[layerID]; !needed {
+				continue
+			}
+
+			client := flowNode{kind: kindClient, nodeID: nodeID, sourceType: meta.SourceType}
 			layer := flowNode{kind: kindLayer, layerID: layerID}
-			g.addEdge(g.idx[sender], g.idx[layer], meta.LimitRate*time)
+
+			g.addEdge(g.idx[sender], g.idx[client], meta.LimitRate*time)
+			g.addEdge(g.idx[client], g.idx[layer], g.layers[layerID].DataSize)
 		}
 	}
 
-	// 3. layer to receiver
+	// 4. layer to receiver
 	for nodeID, layerIDs := range g.assignment {
 		receiver := flowNode{kind: kindReceiver, nodeID: nodeID}
 		for layerID := range layerIDs {
@@ -226,7 +260,7 @@ func (g *flowGraph) buildEdgeCapacity(time int64) {
 			g.addEdge(g.idx[layer], g.idx[receiver], g.layers[layerID].DataSize)
 		}
 
-		// 4. receiver to sink
+		// 5. receiver to sink
 		sink := flowNode{kind: kindSink}
 		receiverNetworkBW := g.getNodeNetworkBW(nodeID)
 		g.addEdge(g.idx[receiver], g.idx[sink], receiverNetworkBW*time)

@@ -132,8 +132,9 @@ type LayerID uint
 type NodeIDs map[NodeID]struct{}
 
 type LayerMeta struct {
-	Location  LayerLocation
-	LimitRate int64
+	Location   LayerLocation
+	LimitRate  int64
+	SourceType SourceType
 }
 
 // set of LayerIDs with its location, rate (used for job assignment)
@@ -162,7 +163,7 @@ func (l LayerIDs) String() string {
 // }
 
 // map of layers (has data in memory or has a path to the file)
-type Layers map[LayerID]LayerSrc
+type LayersSrc map[LayerID]LayerSrc
 
 type routingInfo struct {
 	nextHop       NodeID
@@ -180,10 +181,20 @@ type LayerData []byte
 // LayerLocation is an enum to identify the location of the layer.
 type LayerLocation uint8
 
+// for physically saved location
 const (
 	InmemLayer LayerLocation = iota
 	DiskLayer
 	ClientLayer
+)
+
+// for simulated location
+type SourceType uint8
+
+const (
+	SourceClient SourceType = iota
+	SourceDisk
+	SourceMem
 )
 
 type LayerSrc struct {
@@ -216,7 +227,7 @@ type Leader interface {
 
 type LeaderNode struct {
 	node
-	layers     Layers
+	layers     LayersSrc
 	assignment Assignment
 	status     status
 	// startDistributionChan notifies the start of distribution.
@@ -226,7 +237,7 @@ type LeaderNode struct {
 	mu        sync.RWMutex
 }
 
-func newLeaderNodeBase(node node, layers Layers, assignment Assignment) *LeaderNode {
+func newLeaderNodeBase(node node, layers LayersSrc, assignment Assignment) *LeaderNode {
 	l := &LeaderNode{
 		node:                  node,
 		layers:                layers,
@@ -240,7 +251,7 @@ func newLeaderNodeBase(node node, layers Layers, assignment Assignment) *LeaderN
 	// only send keys of the map
 	curLayerIDs := make(LayerIDs, len(l.layers))
 	for k, layerSrc := range l.layers {
-		curLayerIDs[k] = LayerMeta{layerSrc.Meta.Location, layerSrc.Meta.LimitRate}
+		curLayerIDs[k] = layerSrc.Meta
 	}
 
 	l.status[l.GetMyID()] = curLayerIDs
@@ -248,7 +259,7 @@ func newLeaderNodeBase(node node, layers Layers, assignment Assignment) *LeaderN
 	return l
 }
 
-func NewLeaderNode(node node, layers Layers, assignment Assignment) *LeaderNode {
+func NewLeaderNode(node node, layers LayersSrc, assignment Assignment) *LeaderNode {
 	leaderNode := newLeaderNodeBase(node, layers, assignment)
 
 	leaderNode.handleIncomingMsg()
@@ -464,7 +475,7 @@ type RetransmitLeaderNode struct {
 	layerOwners map[LayerID]NodeIDs
 }
 
-func NewRetransmitLeaderNodeBase(node node, layers Layers, assignment Assignment) *RetransmitLeaderNode {
+func NewRetransmitLeaderNodeBase(node node, layers LayersSrc, assignment Assignment) *RetransmitLeaderNode {
 	leaderBase := newLeaderNodeBase(node, layers, assignment)
 
 	// initialize each value of layerOwners
@@ -481,7 +492,7 @@ func NewRetransmitLeaderNodeBase(node node, layers Layers, assignment Assignment
 	return retransmitLeaderBase
 }
 
-func NewRetransmitLeaderNode(node node, layers Layers, assignment Assignment) *RetransmitLeaderNode {
+func NewRetransmitLeaderNode(node node, layers LayersSrc, assignment Assignment) *RetransmitLeaderNode {
 	retransmitLeader := NewRetransmitLeaderNodeBase(node, layers, assignment)
 
 	retransmitLeader.handleIncomingMsg()
@@ -660,7 +671,7 @@ type PullRetransmitLeaderNode struct {
 	nodeCompletionStatus map[NodeID]bool
 }
 
-func NewPullRetransmitLeaderNode(node node, layers Layers, assignment Assignment) *PullRetransmitLeaderNode {
+func NewPullRetransmitLeaderNode(node node, layers LayersSrc, assignment Assignment) *PullRetransmitLeaderNode {
 	rLeaderBase := NewRetransmitLeaderNodeBase(node, layers, assignment)
 
 	prLeader := &PullRetransmitLeaderNode{
@@ -1068,7 +1079,7 @@ type FlowRetransmitLeaderNode struct {
 	NodeNetworkBW map[NodeID]int64
 }
 
-func NewFlowRetransmitLeaderNode(node node, layers Layers, assignment Assignment, nodeNetworkBW map[NodeID]int64) *FlowRetransmitLeaderNode {
+func NewFlowRetransmitLeaderNode(node node, layers LayersSrc, assignment Assignment, nodeNetworkBW map[NodeID]int64) *FlowRetransmitLeaderNode {
 	rLeaderBase := NewRetransmitLeaderNodeBase(node, layers, assignment)
 
 	// initialize layerDests
@@ -1287,14 +1298,14 @@ type Receiver interface {
 
 type ReceiverNode struct {
 	node
-	layers      Layers
+	layers      LayersSrc
 	storagePath string
 	readyChan   chan struct{}
 	// fetchChan   map[LayerID]chan LayerSrc
 	mu sync.RWMutex
 }
 
-func newReceiverNodeBase(node node, layers Layers, storagePath string) *ReceiverNode {
+func newReceiverNodeBase(node node, layers LayersSrc, storagePath string) *ReceiverNode {
 
 	return &ReceiverNode{
 		node:        node,
@@ -1305,7 +1316,7 @@ func newReceiverNodeBase(node node, layers Layers, storagePath string) *Receiver
 	}
 }
 
-func NewReceiverNode(node node, layers Layers, storagePath string) *ReceiverNode {
+func NewReceiverNode(node node, layers LayersSrc, storagePath string) *ReceiverNode {
 	receiverNode := newReceiverNodeBase(node, layers, storagePath)
 
 	receiverNode.handleIncomingMsg()
@@ -1411,7 +1422,7 @@ type RetransmitReceiverNode struct {
 	*ReceiverNode
 }
 
-func NewRetransmitReceiverNodeBase(node node, layers Layers, storagePath string) *RetransmitReceiverNode {
+func NewRetransmitReceiverNodeBase(node node, layers LayersSrc, storagePath string) *RetransmitReceiverNode {
 	receiverBase := newReceiverNodeBase(node, layers, storagePath)
 
 	rReceiverNode := &RetransmitReceiverNode{
@@ -1421,7 +1432,7 @@ func NewRetransmitReceiverNodeBase(node node, layers Layers, storagePath string)
 	return rReceiverNode
 }
 
-func NewRetransmitReceiverNode(node node, layers Layers, storagePath string) *RetransmitReceiverNode {
+func NewRetransmitReceiverNode(node node, layers LayersSrc, storagePath string) *RetransmitReceiverNode {
 	rReceiverNode := NewRetransmitReceiverNodeBase(node, layers, storagePath)
 
 	rReceiverNode.handleIncomingMsg()
@@ -1477,7 +1488,7 @@ type FlowRetransmitReceiverNode struct {
 	*RetransmitReceiverNode
 }
 
-func NewFlowRetransmitReceiverNode(node node, layers Layers, storagePath string) *FlowRetransmitReceiverNode {
+func NewFlowRetransmitReceiverNode(node node, layers LayersSrc, storagePath string) *FlowRetransmitReceiverNode {
 	rReceiverNodeBase := NewRetransmitReceiverNodeBase(node, layers, storagePath)
 
 	rReceiverNode := &FlowRetransmitReceiverNode{rReceiverNodeBase}
@@ -1577,7 +1588,7 @@ func (frReceiver *FlowRetransmitReceiverNode) handleFlowRetransmitMsg(frMsg *flo
 }
 
 // handleFlowRetransmit sends a (part of) layer to the receiver.
-func handleFlowRetransmit(n node, layers Layers, mu *sync.RWMutex, fetchFromClient func(LayerID, NodeID) error, frMsg *flowRetransmitMsg) error {
+func handleFlowRetransmit(n node, layers LayersSrc, mu *sync.RWMutex, fetchFromClient func(LayerID, NodeID) error, frMsg *flowRetransmitMsg) error {
 	mu.RLock()
 	layerSrc := layers[frMsg.LayerID]
 	mu.RUnlock()

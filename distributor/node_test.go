@@ -16,7 +16,7 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
-func createLeaderAndEmptyReceivers(transports []distributor.Transport, assignment distributor.Assignment, layers distributor.Layers, LeaderNodeID distributor.NodeID, NumReceivers int) (*distributor.LeaderNode, []*distributor.ReceiverNode) {
+func createLeaderAndEmptyReceivers(transports []distributor.Transport, assignment distributor.Assignment, layers distributor.LayersSrc, LeaderNodeID distributor.NodeID, NumReceivers int) (*distributor.LeaderNode, []*distributor.ReceiverNode) {
 	transCounter := 0
 	// leader
 	n := distributor.NewNode(LeaderNodeID, LeaderNodeID, transports[transCounter])
@@ -32,17 +32,17 @@ func createLeaderAndEmptyReceivers(transports []distributor.Transport, assignmen
 
 		// creates a new receiver node with no layers
 		node := distributor.NewNode(distributor.NodeID(int(LeaderNodeID)+i+1), LeaderNodeID, receiverTransport)
-		receiver := distributor.NewReceiverNode(node, make(distributor.Layers), "")
+		receiver := distributor.NewReceiverNode(node, make(distributor.LayersSrc), "")
 		receivers[i] = receiver
 	}
 	return leader, receivers
 }
 
-type LeaderFactory func(n *distributor.N, layers distributor.Layers, assignment distributor.Assignment) distributor.Leader
-type ReceiverFactory func(n *distributor.N, layers distributor.Layers) distributor.Receiver
+type LeaderFactory func(n *distributor.N, layers distributor.LayersSrc, assignment distributor.Assignment) distributor.Leader
+type ReceiverFactory func(n *distributor.N, layers distributor.LayersSrc) distributor.Receiver
 
 // creates a ring (each node is assigned a layer stored at the next node)
-func createRetransmitLeaderAndReceivers(transports []distributor.Transport, assignment distributor.Assignment, layers distributor.Layers, LeaderNodeID distributor.NodeID, NumReceivers int, leaderFactory LeaderFactory, receiverFactory ReceiverFactory) (distributor.Leader, []distributor.Receiver) {
+func createRetransmitLeaderAndReceivers(transports []distributor.Transport, assignment distributor.Assignment, layers distributor.LayersSrc, LeaderNodeID distributor.NodeID, NumReceivers int, leaderFactory LeaderFactory, receiverFactory ReceiverFactory) (distributor.Leader, []distributor.Receiver) {
 	transCounter := 0
 	// leader
 	n := distributor.NewNode(LeaderNodeID, LeaderNodeID, transports[transCounter])
@@ -58,7 +58,7 @@ func createRetransmitLeaderAndReceivers(transports []distributor.Transport, assi
 
 		// creates a new receiver node. Each node is assigned a layer stored at the next node (e.g., r1 is assinged l1, but l1 is already obtained by r2)
 		node := distributor.NewNode(distributor.NodeID(int(LeaderNodeID)+i+1), LeaderNodeID, receiverTransport)
-		receiverLayers := make(distributor.Layers)
+		receiverLayers := make(distributor.LayersSrc)
 
 		// creates a ring
 		prevIndex := (int(LeaderNodeID) + i - 1 + NumReceivers) % NumReceivers
@@ -71,9 +71,9 @@ func createRetransmitLeaderAndReceivers(transports []distributor.Transport, assi
 	return leader, receivers
 }
 
-func createMockLayers(NumLayers, NumReceivers, LeaderNodeID, layerSize int64) *distributor.Layers {
+func createMockLayers(NumLayers, NumReceivers, LeaderNodeID, layerSize int64) *distributor.LayersSrc {
 	// layers which the leader should distribute to receivers
-	layers := make(distributor.Layers, NumLayers)
+	layers := make(distributor.LayersSrc, NumLayers)
 	for i := range NumReceivers {
 		// add dummy data in memory
 		layerData := distributor.LayerData(make([]byte, layerSize))
@@ -224,10 +224,10 @@ func TestSimpleDistribution(t *testing.T) {
 			}
 		})
 
-		leaderFactory := func(n *distributor.N, layers distributor.Layers, assignment distributor.Assignment) distributor.Leader {
+		leaderFactory := func(n *distributor.N, layers distributor.LayersSrc, assignment distributor.Assignment) distributor.Leader {
 			return distributor.NewRetransmitLeaderNode(n, layers, assignment)
 		}
-		receiverFactory := func(n *distributor.N, layers distributor.Layers) distributor.Receiver {
+		receiverFactory := func(n *distributor.N, layers distributor.LayersSrc) distributor.Receiver {
 			return distributor.NewRetransmitReceiverNode(n, layers, "")
 		}
 		leader, receivers := createRetransmitLeaderAndReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers, leaderFactory, receiverFactory)
@@ -251,10 +251,10 @@ func TestSimpleDistribution(t *testing.T) {
 			}
 		})
 
-		leaderFactory := func(n *distributor.N, layers distributor.Layers, assignment distributor.Assignment) distributor.Leader {
+		leaderFactory := func(n *distributor.N, layers distributor.LayersSrc, assignment distributor.Assignment) distributor.Leader {
 			return distributor.NewPullRetransmitLeaderNode(n, layers, assignment)
 		}
-		receiverFactory := func(n *distributor.N, layers distributor.Layers) distributor.Receiver {
+		receiverFactory := func(n *distributor.N, layers distributor.LayersSrc) distributor.Receiver {
 			return distributor.NewRetransmitReceiverNode(n, layers, "")
 		}
 		leader, receivers := createRetransmitLeaderAndReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers, leaderFactory, receiverFactory)
@@ -304,10 +304,10 @@ func BenchmarkSimpleDistributionTcp(b *testing.B) {
 	b.Run("tcp_retransmission", func(b *testing.B) {
 		transports := createTcpTransports(NumPeers, LeaderNodeID)
 
-		leaderFactory := func(n *distributor.N, layers distributor.Layers, assignment distributor.Assignment) distributor.Leader {
+		leaderFactory := func(n *distributor.N, layers distributor.LayersSrc, assignment distributor.Assignment) distributor.Leader {
 			return distributor.NewRetransmitLeaderNode(n, layers, assignment)
 		}
-		receiverFactory := func(n *distributor.N, layers distributor.Layers) distributor.Receiver {
+		receiverFactory := func(n *distributor.N, layers distributor.LayersSrc) distributor.Receiver {
 			return distributor.NewRetransmitReceiverNode(n, layers, "")
 		}
 		leader, receivers := createRetransmitLeaderAndReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers, leaderFactory, receiverFactory)
