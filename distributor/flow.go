@@ -27,18 +27,23 @@ type flowNode struct {
 	sourceType SourceType
 }
 
-type flowJobInfo struct {
-	senderID NodeID
-	layerID  LayerID
-	dataSize int64
-	offset   int64
+type job struct {
+	// sender of the job
+	SenderID NodeID
+	// layer
+	LayerID LayerID
+	// rate at which the sender transmits the blocks
+	Rate int64
+	// Size of data which the sender is expected to send
+	DataSize int64
 }
 
-func (job *flowJobInfo) String() string {
-	return fmt.Sprintf("s%d -> (l%d: %d Bytes), offset: %d", job.senderID, job.layerID, job.dataSize, job.offset)
+func (job *job) String() string {
+	return fmt.Sprintf("s%d: l%d, rate=%d", job.SenderID, job.LayerID, job.Rate)
 }
 
-type flowJobInfosMap map[NodeID][]flowJobInfo
+// key: dest, val: list of jobs
+type destJobs map[NodeID][]job
 
 type flowGraph struct {
 	adjMatrix          [][]int64
@@ -52,7 +57,7 @@ type flowGraph struct {
 	maxFlow            int64
 }
 
-func (frleader *FlowRetransmitLeaderNode) newFlowGraph(assignment Assignment) *flowGraph {
+func newFlowGraph(assignment Assignment, status status, layers LayersSrc, NodeNetworkBW map[NodeID]int64) *flowGraph {
 	// counts num of assignmentLayerIDs across the assignment
 	assignmentLayerIDs := make(LayerIDs)
 
@@ -82,15 +87,15 @@ func (frleader *FlowRetransmitLeaderNode) newFlowGraph(assignment Assignment) *f
 	addIndex(src)
 
 	// 2. sender
-	for _, nodeID := range slices.Sorted(maps.Keys(frleader.status)) {
+	for _, nodeID := range slices.Sorted(maps.Keys(status)) {
 		sender := flowNode{kind: kindSender, nodeID: nodeID}
 		addIndex(sender)
 	}
 
 	// 3. client(source) for each sender
-	for _, nodeID := range slices.Sorted(maps.Keys(frleader.status)) {
+	for _, nodeID := range slices.Sorted(maps.Keys(status)) {
 		sourceSet := make(map[SourceType]struct{})
-		for _, meta := range frleader.status[nodeID] {
+		for _, meta := range status[nodeID] {
 			sourceSet[meta.SourceType] = struct{}{}
 		}
 
@@ -131,9 +136,9 @@ func (frleader *FlowRetransmitLeaderNode) newFlowGraph(assignment Assignment) *f
 	g := flowGraph{
 		adjMatrix:          adjMatrix,
 		assignment:         assignment,
-		status:             frleader.status,
-		layers:             frleader.layers,
-		nodeNetworkBW:      frleader.NodeNetworkBW,
+		status:             status,
+		layers:             layers,
+		nodeNetworkBW:      NodeNetworkBW,
 		assignmentLayerIDs: assignmentLayerIDs,
 		idx:                idx,
 		numVertex:          numVertex,
@@ -143,7 +148,7 @@ func (frleader *FlowRetransmitLeaderNode) newFlowGraph(assignment Assignment) *f
 	return &g
 }
 
-func (g *flowGraph) getJobAssignment() (int64, flowJobInfosMap) {
+func (g *flowGraph) getJobAssignment() (int64, destJobs) {
 	requiredFlow := int64(0)
 
 	log.Info().Msg("assigning a job...")
@@ -190,9 +195,7 @@ func (g *flowGraph) getJobAssignment() (int64, flowJobInfosMap) {
 	// log.Debug().Int64("t", t).Msg("minimum t found")
 	g.updateMaxFlow(t)
 
-	flowJobs := make(flowJobInfosMap)
-
-	layerOffset := make(map[LayerID]int64)
+	destJobs := make(destJobs)
 
 	for senderID, layerIDs := range g.status {
 		for layerID, meta := range layerIDs {
@@ -202,20 +205,19 @@ func (g *flowGraph) getJobAssignment() (int64, flowJobInfosMap) {
 
 			client := flowNode{kind: kindClient, nodeID: senderID, sourceType: meta.SourceType}
 			layer := flowNode{kind: kindLayer, layerID: layerID}
-			flow := g.adjMatrix[g.idx[layer]][g.idx[client]]
-			if flow > 0 {
-				offset := layerOffset[layerID]
-				flowJobs[senderID] = append(flowJobs[senderID], flowJobInfo{senderID, layerID, flow, offset})
-				layerOffset[layerID] += flow
+			flowSize := g.adjMatrix[g.idx[layer]][g.idx[client]]
+			if flowSize > 0 {
+				rate := flowSize / t
+				destJobs[senderID] = append(destJobs[senderID], job{senderID, layerID, rate, flowSize})
 			}
 		}
 	}
 
 	log.Info().
-		Int64("required minimum time(s)", t).
-		Msg("job assignment calculated")
+		Int64("ETA(s)", t).
+		Msg("job assignment updated")
 
-	return t, flowJobs
+	return t, destJobs
 }
 
 func (g *flowGraph) buildEdgeCapacity(time int64) {

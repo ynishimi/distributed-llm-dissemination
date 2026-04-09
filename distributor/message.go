@@ -20,7 +20,9 @@ const (
 	MsgTypeAck
 	MsgTypeLayer
 	MsgTypeRetransmit
-	MsgTypeFlowRetransmit
+	MsgTypeReq
+	MsgTypeJob
+	MsgTypeProgressReport
 	MsgTypeClientReq
 	MsgTypeStartup
 	MsgTypeSimple
@@ -117,37 +119,94 @@ func (m *retransmitMsg) String() string {
 	return fmt.Sprintf("from %v: layer %v, to %v, ", m.SrcID, m.LayerID, m.DestID)
 }
 
-// flowRetransmitMsg
-type flowRetransmitMsg struct {
-	SrcID    NodeID
-	LayerID  LayerID
-	DestID   NodeID
-	DataSize int64
-	Offset   int64
-	Rate     int64
+// coordinator -> receiver
+type jobMsg struct {
+	SrcID NodeID
+	jobs  []job
 }
 
-func NewFlowRetransmitMsg(src NodeID, layerID LayerID, destID NodeID, dataSize int64, offset int64, rate int64) *flowRetransmitMsg {
-	return &flowRetransmitMsg{
-		SrcID:    src,
-		LayerID:  layerID,
-		DestID:   destID,
-		DataSize: dataSize,
-		Offset:   offset,
-		Rate:     rate,
-	}
+func NewJobMsg(srcID NodeID, jobs []job) *jobMsg {
+	return &jobMsg{srcID, jobs}
 }
 
-func (m *flowRetransmitMsg) Src() string {
+func (m *jobMsg) Src() string {
 	return fmt.Sprint(m.SrcID)
 }
 
-func (m *flowRetransmitMsg) Type() MsgType {
-	return MsgTypeFlowRetransmit
+func (m *jobMsg) Type() MsgType {
+	return MsgTypeJob
 }
 
-func (m *flowRetransmitMsg) String() string {
-	return fmt.Sprintf("from %v: layer %v, to %v, size: %d, offset: %d, rate: %d", m.SrcID, m.LayerID, m.DestID, m.DataSize, m.Offset, m.Rate)
+func (m *jobMsg) String() string {
+	return fmt.Sprintf("from %v")
+}
+
+// reqMsg
+type reqMsg struct {
+	// receiver
+	SrcID   NodeID
+	LayerID LayerID
+	// sender
+	DestID    NodeID
+	BlockID   BlockID
+	Rate      int64
+	TotalSize int64
+}
+
+func NewReqMsg(srcID NodeID, layerID LayerID, destID NodeID, blockID BlockID, rate int64, totalSize int64) *reqMsg {
+	return &reqMsg{
+		SrcID:     srcID,
+		LayerID:   layerID,
+		DestID:    destID,
+		BlockID:   blockID,
+		Rate:      rate,
+		TotalSize: totalSize,
+	}
+}
+
+func (m *reqMsg) Src() string {
+	return fmt.Sprint(m.SrcID)
+}
+
+func (m *reqMsg) Type() MsgType {
+	return MsgTypeReq
+}
+
+func (m *reqMsg) String() string {
+	return fmt.Sprintf("from %v: layer %v, to %v, block: %d, rate: %d, totalSize: %d", m.SrcID, m.LayerID, m.DestID, m.BlockID, m.Rate, m.TotalSize)
+}
+
+// progressReportMsg
+type progressReportMsg struct {
+	SrcID NodeID
+	// LayerID  LayerID
+	// DestID   NodeID
+	// DataSize int64
+	// Offset   int64
+	// Rate     int64
+}
+
+func NewProgressReportMsg(src NodeID) *progressReportMsg {
+	return &progressReportMsg{
+		SrcID: src,
+		// LayerID:  layerID,
+		// DestID:   destID,
+		// DataSize: dataSize,
+		// Offset:   offset,
+		// Rate:     rate,
+	}
+}
+
+func (m *progressReportMsg) Src() string {
+	return fmt.Sprint(m.SrcID)
+}
+
+func (m *progressReportMsg) Type() MsgType {
+	return MsgTypeProgressReport
+}
+
+func (m *progressReportMsg) String() string {
+	return fmt.Sprintf("")
 }
 
 // layerMsg
@@ -187,6 +246,23 @@ func (m *layerMsg) Payload() []byte {
 
 func (m *layerMsg) String() string {
 	return fmt.Sprintf("from %v: layer %v, location: %v, rate: %v", m.SrcID, m.LayerID, m.LayerSrc.Meta.Location, m.LayerSrc.Meta.LimitRate)
+}
+
+// blockMsg
+type blockMsg struct {
+	*layerMsg
+	BlockID BlockID
+}
+
+func NewBlockMsg(src NodeID, layerID LayerID, layerSrc LayerSrc, blockID BlockID) *blockMsg {
+	return &blockMsg{
+		layerMsg: &layerMsg{
+			SrcID:    src,
+			LayerID:  layerID,
+			LayerSrc: layerSrc,
+		},
+		BlockID: blockID,
+	}
 }
 
 // clientReqMsg
@@ -287,8 +363,12 @@ func decodeMsg(m TransportMsg) (Message, error) {
 	// 	return unmarshalRawMsg[*layerMsg](m.Payload)
 	case MsgTypeRetransmit:
 		return unmarshalRawMsg[*retransmitMsg](m.Payload)
-	case MsgTypeFlowRetransmit:
-		return unmarshalRawMsg[*flowRetransmitMsg](m.Payload)
+	case MsgTypeReq:
+		return unmarshalRawMsg[*reqMsg](m.Payload)
+	case MsgTypeJob:
+		return unmarshalRawMsg[*jobMsg](m.Payload)
+	case MsgTypeProgressReport:
+		return unmarshalRawMsg[*progressReportMsg](m.Payload)
 	case MsgTypeClientReq:
 		return unmarshalRawMsg[*clientReqMsg](m.Payload)
 	case MsgTypeStartup:

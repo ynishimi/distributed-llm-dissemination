@@ -1,0 +1,485 @@
+package distributor
+
+import (
+	"sync"
+	"time"
+
+	"github.com/rs/zerolog/log"
+)
+
+const BlockSize = 256 * 1024
+
+// AdaptiveLeaderNode implements flow-based adaptive leader node.
+type AdaptiveLeaderNode struct {
+	*LeaderNode
+	LayerDests    map[LayerID]NodeID // caution: only one dest is accepted in this implementaion!
+	NodeNetworkBW map[NodeID]int64
+}
+
+func NewAdaptiveLeaderNode(node node, layers LayersSrc, assignment Assignment, nodeNetworkBW map[NodeID]int64) *AdaptiveLeaderNode {
+	leaderBase := newLeaderNodeBase(node, layers, assignment)
+
+	// initialize layerDests
+	layerDests := make(map[LayerID]NodeID)
+	for destID, layerIDs := range assignment {
+		for layerID := range layerIDs {
+			if _, ok := layerDests[layerID]; !ok {
+				layerDests[layerID] = destID
+			} else {
+				log.Error().Uint("layerID", uint(layerID)).Msg("a layer assigned to multiple layers")
+			}
+		}
+	}
+
+	// copy to avoid accidental external mutation while scheduling jobs
+	networkBW := make(map[NodeID]int64, len(nodeNetworkBW))
+	for nodeID, bw := range nodeNetworkBW {
+		networkBW[nodeID] = bw
+	}
+
+	alNode := &AdaptiveLeaderNode{leaderBase, layerDests, networkBW}
+
+	// alNode.sendLayersFn = alNode.sendLayers
+
+	alNode.handleIncomingMsg()
+
+	return alNode
+}
+
+func (leader *AdaptiveLeaderNode) handleIncomingMsg() {
+	go func() {
+		for incomingMsg := range leader.GetTransport().Deliver() {
+			log.Debug().Msgf("incoming msg[%T]: %s", incomingMsg, incomingMsg)
+			switch v := incomingMsg.(type) {
+
+			case *announceMsg:
+				go leader.handleAnnounceMsg(v)
+			// case *ackMsg:
+			// 	go leader.handleAckMsg(v)
+			// 	// receive layer
+			case *reqMsg:
+				go leader.handleReqMsg(v)
+			case *progressReportMsg:
+				go leader.handleReportMsg(v)
+				// case *layerMsg:
+				// 	go leader.handleLayerMsg(v)
+			}
+		}
+	}()
+}
+
+func (leader *AdaptiveLeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
+
+	leader.mu.Lock()
+	// checks if the announcement is already received
+	_, ok := leader.status[announceMsg.SrcID]
+
+	if !ok {
+		// initialize the value (map of layers the receiver already has)
+		leader.status[announceMsg.SrcID] = announceMsg.LayerIDs
+		// add the receiver as neighbor
+		leader.node.addNode(announceMsg.SrcID)
+	}
+	leader.mu.Unlock()
+
+	leader.mu.RLock()
+	a := leader.assignment
+	s := leader.status
+	leader.mu.RUnlock()
+	// checks if all nodes in the assignment are connected by comparing the keys of assignment and status
+	for nodeID := range a {
+		_, ok := s[nodeID]
+		if !ok {
+			return
+		}
+	}
+
+	// start sending layers
+	leader.startDistributionChan <- a
+	log.Info().Msg("timer start")
+	time, selfJobsMap, jobsMap := leader.assignJobs()
+	leader.dispatchJobs(time, selfJobsMap, jobsMap)
+}
+
+func (leader *AdaptiveLeaderNode) handleReqMsg(reqMsg *reqMsg) error {
+	return sendBlock(leader.node, leader.layers, &leader.mu, reqMsg)
+}
+
+// todo
+func (leader *AdaptiveLeaderNode) handleReportMsg(repoMsg *progressReportMsg) error {
+	return nil
+}
+
+func (leader *AdaptiveLeaderNode) assignJobs() (t int64, selfJobsMap, jobsMap destJobs) {
+	// divide jobs into self-assignment and others
+	selfJobsMap = make(destJobs)
+	modifiedAssignment := make(Assignment)
+
+	for destID, layerIDs := range leader.assignment {
+		for layerID, meta := range layerIDs {
+			// if the destination has the layer in its client, directly send the layer from the client to the node
+			if _, ok := leader.status[destID][layerID]; ok {
+				selfJobsMap[destID] = append(selfJobsMap[destID], job{destID, layerID, meta.LimitRate, leader.layers[layerID].DataSize})
+			} else {
+				if _, ok := modifiedAssignment[destID]; !ok {
+					modifiedAssignment[destID] = make(LayerIDs)
+				}
+				modifiedAssignment[destID][layerID] = meta
+			}
+		}
+	}
+
+	// skip flow calculation if no jobs to assign
+	if len(modifiedAssignment) == 0 {
+		log.Info().Msg("No jobs to assign other than self-assignment")
+		return 0, selfJobsMap, make(destJobs)
+	}
+
+	t0 := time.Now()
+	g := newFlowGraph(modifiedAssignment, leader.status, leader.layers, leader.NodeNetworkBW)
+	t, jobsMap = g.getJobAssignment()
+
+	t1 := time.Since(t0)
+
+	log.Info().Dur("computation time", t1).Msg("Job assignment completed")
+
+	return t, selfJobsMap, jobsMap
+}
+
+// Jobs are assigned to receivers
+func (leader *AdaptiveLeaderNode) dispatchJobs(minTime int64, selfJobsMap, destJobs destJobs) error {
+	// self-assignment
+	for destID, jobInfos := range selfJobsMap {
+		for _, job := range jobInfos {
+			frMsg := NewReqMsg(
+				leader.node.GetMyID(), job.LayerID, job.SenderID, 0, job.Rate, job.DataSize)
+
+			// this time, jobs are sent to receivers
+			err := leader.GetTransport().Send(destID, frMsg)
+			return err
+		}
+	}
+
+	// for each sender, assign jobs from jobs slice
+	for destID, jobs := range destJobs {
+		jobMsg := NewJobMsg(leader.node.GetMyID(), jobs)
+
+		// this time, jobs are sent to receivers
+		err := leader.GetTransport().Send(destID, jobMsg)
+		return err
+	}
+
+	return nil
+}
+
+// AdaptiveReceiverNode
+
+type AdaptiveReceiverNode struct {
+	*ReceiverNode
+	layerManagerMap map[LayerID]layerManager
+}
+
+type BlockID int
+
+func (blockID *BlockID) getOffset() int64 {
+	return int64(*blockID) * BlockSize
+}
+
+type layerManager struct {
+	receivedBlocks map[BlockID]struct{}
+	nextReqBlock   BlockID
+	// key: sender, val: rate
+	activeSenders map[NodeID]int64
+}
+
+func (lm *layerManager) getNextAndIncrement() BlockID {
+	lm.nextReqBlock += 1
+	return lm.nextReqBlock
+}
+
+func NewAdaptiveReceiverNode(node node, layers LayersSrc, storagePath string) *AdaptiveReceiverNode {
+	receiverBase := newReceiverNodeBase(node, layers, storagePath)
+
+	arNode := &AdaptiveReceiverNode{
+		ReceiverNode:    receiverBase,
+		layerManagerMap: make(map[LayerID]layerManager),
+	}
+
+	arNode.handleIncomingMsg()
+
+	return arNode
+}
+
+func (receiver *AdaptiveReceiverNode) handleIncomingMsg() {
+	go func() {
+		for incomingMsg := range receiver.GetTransport().Deliver() {
+			log.Debug().Msgf("incoming msg[%T]: %s", incomingMsg, incomingMsg)
+			switch v := incomingMsg.(type) {
+			case *layerMsg:
+				go receiver.handleLayerMsg(v)
+			case *jobMsg:
+				go receiver.handleJobMsg(v)
+			case *reqMsg:
+				go receiver.handleReqMsg(v)
+			// start the inference engine
+			case *startupMsg:
+				go receiver.handleStartupMsg(v)
+			}
+		}
+	}()
+}
+
+// handleLayerMsg stores the layer to its memory, and then sends ack to the leader.
+func (receiver *AdaptiveReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
+	receiver.mu.Lock()
+	defer receiver.mu.Unlock()
+
+	var layerSrc LayerSrc
+
+	layerSrc, ok := receiver.layers[layerMsg.LayerID]
+	if !ok {
+		data := make(LayerData, 0)
+		// initialize layerSrc
+		layerSrc = LayerSrc{
+			InmemData: &data,
+			Fp:        "",
+			DataSize:  0,
+			Offset:    0,
+			Meta: LayerMeta{
+				Location: InmemLayer,
+			},
+		}
+	}
+
+	if layerSrc.DataSize < layerMsg.TotalSize {
+		// save a part of layer
+		layerSrc.DataSize += layerMsg.LayerSrc.DataSize
+		// partialData := layerMsg.LayerSrc.InmemData
+		// buf := *layerSrc.InmemData
+		// copy(buf[layerMsg.LayerSrc.Offset:], *partialData)
+
+		// store layer
+		receiver.layers[layerMsg.LayerID] = layerSrc
+		// log.Debug().Msgf("saved layer %v in memory", layerMsg.LayerID)
+
+		log.Info().Msgf("l%d downloaded (%d B / %d B)", layerMsg.LayerID, layerSrc.DataSize, layerMsg.TotalSize)
+	}
+	if layerSrc.DataSize == layerMsg.TotalSize {
+		log.Info().
+			Uint("layer", uint(layerMsg.LayerID)).
+			Int64("total_bytes", layerMsg.TotalSize).
+			Msg("layer fully received")
+		// send ack to leader
+		ackMsg := NewAckMsg(receiver.node.GetMyID(), layerMsg.LayerID, layerSrc.Meta.Location)
+		err := receiver.GetTransport().Send(receiver.getLeader(), ackMsg)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to send ackMsg")
+		}
+	}
+}
+
+// receivers request blocks based on the information in jobMsg
+func (receiver *AdaptiveReceiverNode) handleJobMsg(jobMsg *jobMsg) {
+	receiver.mu.Unlock()
+	defer receiver.mu.Unlock()
+
+	for _, lm := range receiver.layerManagerMap {
+		for activeSender := range lm.activeSenders {
+			// todo: stop all the active senders, possibly by using channels?
+
+			// todo: reset activeSenders
+
+		}
+	}
+
+	// activeSenders field should be empty by this time; Fill it with new jobs
+
+	for _, job := range jobMsg.jobs {
+		// update layerManagerMap
+		_, ok := receiver.layerManagerMap[job.LayerID]
+		if !ok {
+			newManager := layerManager{
+				receivedBlocks: make(map[BlockID]struct{}),
+				nextReqBlock:   0,
+				activeSenders:  make(map[NodeID]int64),
+			}
+			receiver.layerManagerMap[job.LayerID] = newManager
+		}
+
+		receiver.layerManagerMap[job.LayerID].activeSenders[job.SenderID] = job.Rate
+		// todo: start the goroutine
+		// maybe this causes deadlock? (mutex)
+		go receiver.requestPipeline(job.LayerID, job.SenderID, job.Rate)
+	}
+
+}
+
+// todo: each combination of sender and layer has this
+// e.g., (layer 0, sender 0)
+// todo: this should be run separately in goroutine
+func (receiver *AdaptiveReceiverNode) requestPipeline(layerID LayerID, senderID NodeID, rate int64) {
+	receiver.mu.Lock()
+
+	lm, ok := receiver.layerManagerMap[layerID]
+	if !ok {
+		log.Error().Msg("layerMsg not exist")
+	}
+
+	// create and send msg for getting next block
+	reqMsg := NewReqMsg(receiver.GetMyID(), layerID, senderID, lm.getNextAndIncrement(), rate)
+
+	receiver.mu.Unlock()
+
+	err := receiver.GetTransport().Send(senderID, reqMsg)
+	if err != nil {
+		log.Error().Err(err).Send()
+	}
+}
+
+func (receiver *AdaptiveReceiverNode) handleReqMsg(reqMsg *reqMsg) error {
+	return sendBlock(receiver.node, receiver.layers, &receiver.mu, reqMsg)
+}
+
+// todo: sender sends blocks
+func sendBlock(n node, layers LayersSrc, mu *sync.RWMutex, reqMsg *reqMsg) error {
+
+	mu.RLock()
+	layerSrc := layers[reqMsg.LayerID]
+	mu.RUnlock()
+
+	n.addNode(reqMsg.DestID)
+
+	var blockLayerSrc LayerSrc
+	blockLayerSrc = layerSrc
+
+	switch layerSrc.Meta.Location {
+	case InmemLayer, DiskLayer:
+		blockLayerSrc.DataSize = BlockSize
+		blockLayerSrc.Offset = reqMsg.BlockID.getOffset()
+		blockLayerSrc.Meta.LimitRate = reqMsg.Rate
+
+		blockMsg := NewBlockMsg(n.GetMyID(), reqMsg.LayerID, blockLayerSrc, reqMsg.BlockID)
+		n.GetTransport().Send(reqMsg.SrcID, blockMsg)
+
+		// This happens only if the node should receive a layer from its client.
+		// For implementation wise, directly load it
+	case ClientLayer:
+		// todo
+
+		// go func() {
+		// 	data := *layerSrc.InmemData
+		// 	partial := data[reqMsg.Offset : reqMsg.Offset+reqMsg.DataSize]
+
+		// 	const BucketSize = 256 * 1024
+		// 	limiter := rate.NewLimiter(rate.Limit(reqMsg.Rate), BucketSize)
+		// 	buf := make(LayerData, len(partial))
+		// 	pos := 0
+		// 	for pos < len(partial) {
+		// 		n := min(len(partial)-pos, limiter.Burst())
+		// 		limiter.WaitN(context.Background(), n)
+		// 		copy(buf[pos:], partial[pos:pos+n])
+		// 		pos += n
+		// 	}
+
+		// 	partialLayerSrc := LayerSrc{
+		// 		InmemData: &buf,
+		// 		DataSize:  reqMsg.DataSize,
+		// 		Offset:    reqMsg.Offset,
+		// 		Meta:      LayerMeta{Location: InmemLayer},
+		// 	}
+		// 	localMsg := NewBlockMsg(n.GetMyID(), reqMsg.LayerID, partialLayerSrc, layerSrc.DataSize)
+		// 	n.GetTransport().(*TcpTransport).incomingMsgChan <- localMsg
+		// }()
+
+		log.Error().Msg("todo: client layer not implemented")
+
+		return nil
+
+	default:
+		log.Error().Msg("unknown location")
+
+		// upon request, send the corresponding block
+
+		// set the limit rate
+
+		// measure the rate of network and disk
+
+		return nil
+	}
+}
+
+// func (receiver *AdaptiveReceiverNode) handleFlowRetransmitMsg(frMsg *reqMsg) error {
+// 	t0 := time.Now()
+// 	log.Info().
+// 		Uint("layer", uint(frMsg.LayerID)).
+// 		Uint("dest", uint(frMsg.DestID)).
+// 		Int64("size", frMsg.DataSize).
+// 		Int64("rate", frMsg.Rate).
+// 		Msg("start sending layer")
+
+// 	err := handleFlowRetransmit(receiver.node, receiver.layers, &receiver.mu, frMsg)
+
+// 	t1 := time.Since(t0)
+
+// 	log.Info().
+// 		Uint("layer", uint(frMsg.LayerID)).
+// 		Uint("dest", uint(frMsg.DestID)).
+// 		Dur("send_dur", t1).
+// 		Int64("throughput[MiB/s]", frMsg.DataSize/t1.Milliseconds()*1000>>20).
+// 		Msg("finished sending layer")
+// 	return err
+// }
+
+// // handleFlowRetransmit sends a (part of) layer to the receiver.
+// func handleFlowRetransmit(n node, layers LayersSrc, mu *sync.RWMutex, frMsg *reqMsg) error {
+// 	mu.RLock()
+// 	layerSrc := layers[frMsg.LayerID]
+// 	mu.RUnlock()
+
+// 	n.addNode(frMsg.DestID)
+
+// 	var partialLayerSrc LayerSrc
+// 	partialLayerSrc = layerSrc
+
+// 	switch layerSrc.Meta.Location {
+// 	case InmemLayer, DiskLayer:
+// 		partialLayerSrc.DataSize = frMsg.DataSize
+// 		partialLayerSrc.Offset = frMsg.Offset
+// 		partialLayerSrc.Meta.LimitRate = frMsg.Rate
+
+// 		// This happens only if the node should receive a layer from its client.
+// 		// For implementation wise, directly load it
+// 	case ClientLayer:
+// 		go func() {
+// 			data := *layerSrc.InmemData
+// 			partial := data[frMsg.Offset : frMsg.Offset+frMsg.DataSize]
+
+// 			const BucketSize = 256 * 1024
+// 			limiter := rate.NewLimiter(rate.Limit(frMsg.Rate), BucketSize)
+// 			buf := make(LayerData, len(partial))
+// 			pos := 0
+// 			for pos < len(partial) {
+// 				n := min(len(partial)-pos, limiter.Burst())
+// 				limiter.WaitN(context.Background(), n)
+// 				copy(buf[pos:], partial[pos:pos+n])
+// 				pos += n
+// 			}
+
+// 			partialLayerSrc := LayerSrc{
+// 				InmemData: &buf,
+// 				DataSize:  frMsg.DataSize,
+// 				Offset:    frMsg.Offset,
+// 				Meta:      LayerMeta{Location: InmemLayer},
+// 			}
+// 			localMsg := NewLayerMsg(n.GetMyID(), frMsg.LayerID, partialLayerSrc, layerSrc.DataSize)
+// 			n.GetTransport().(*TcpTransport).incomingMsgChan <- localMsg
+// 		}()
+// 		return nil
+
+// 	default:
+// 		log.Error().Msg("unknown location")
+// 	}
+
+// 	layerMsg := NewLayerMsg(n.GetMyID(), frMsg.LayerID, partialLayerSrc, layerSrc.DataSize)
+// 	return n.GetTransport().Send(frMsg.DestID, layerMsg)
+// }
