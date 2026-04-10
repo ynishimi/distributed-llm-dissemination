@@ -153,7 +153,7 @@ func (leader *AdaptiveLeaderNode) dispatchJobs(minTime int64, selfJobsMap, destJ
 	for destID, jobInfos := range selfJobsMap {
 		for _, job := range jobInfos {
 			frMsg := NewReqMsg(
-				leader.node.GetMyID(), job.LayerID, job.SenderID, 0, job.Rate, job.DataSize)
+				leader.node.GetMyID(), job.LayerID, job.SenderID, 0, job.Rate)
 
 			// this time, jobs are sent to receivers
 			err := leader.GetTransport().Send(destID, frMsg)
@@ -361,7 +361,6 @@ func (receiver *AdaptiveReceiverNode) requestPipeline(layerID LayerID, senderID 
 			}
 
 			// create and send msg for getting next block
-			// todo: store total size and number of blocks of the layer
 			reqMsg := NewReqMsg(receiver.GetMyID(), layerID, senderID, lm.getNextAndIncrement(), sender.rate)
 
 			receiver.mu.Unlock()

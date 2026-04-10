@@ -27,6 +27,7 @@ const (
 	MsgTypeStartup
 	MsgTypeSimple
 	MsgTypeTransport
+	MsgTypeBlock
 )
 
 // announceMsg
@@ -138,7 +139,7 @@ func (m *jobMsg) Type() MsgType {
 }
 
 func (m *jobMsg) String() string {
-	return fmt.Sprintf("from %v")
+	return fmt.Sprintf("from %v", m.SrcID)
 }
 
 // reqMsg
@@ -147,20 +148,18 @@ type reqMsg struct {
 	SrcID   NodeID
 	LayerID LayerID
 	// sender
-	DestID    NodeID
-	BlockID   BlockID
-	Rate      int64
-	TotalSize int64
+	DestID  NodeID
+	BlockID BlockID
+	Rate    int64
 }
 
-func NewReqMsg(srcID NodeID, layerID LayerID, destID NodeID, blockID BlockID, rate int64, totalSize int64) *reqMsg {
+func NewReqMsg(srcID NodeID, layerID LayerID, destID NodeID, blockID BlockID, rate int64) *reqMsg {
 	return &reqMsg{
-		SrcID:     srcID,
-		LayerID:   layerID,
-		DestID:    destID,
-		BlockID:   blockID,
-		Rate:      rate,
-		TotalSize: totalSize,
+		SrcID:   srcID,
+		LayerID: layerID,
+		DestID:  destID,
+		BlockID: blockID,
+		Rate:    rate,
 	}
 }
 
@@ -173,7 +172,7 @@ func (m *reqMsg) Type() MsgType {
 }
 
 func (m *reqMsg) String() string {
-	return fmt.Sprintf("from %v: layer %v, to %v, block: %d, rate: %d, totalSize: %d", m.SrcID, m.LayerID, m.DestID, m.BlockID, m.Rate, m.TotalSize)
+	return fmt.Sprintf("from %v: layer %v, to %v, block: %d, rate: %d", m.SrcID, m.LayerID, m.DestID, m.BlockID, m.Rate)
 }
 
 // progressReportMsg
@@ -263,6 +262,14 @@ func NewBlockMsg(src NodeID, layerID LayerID, layerSrc LayerSrc, blockID BlockID
 		},
 		BlockID: blockID,
 	}
+}
+
+func (m *blockMsg) Type() MsgType {
+	return MsgTypeBlock
+}
+
+func (m *blockMsg) String() string {
+	return fmt.Sprintf("from %v: layer %v, block: %d, rate: %v", m.SrcID, m.LayerID, m.BlockID, m.LayerSrc.Meta.LimitRate)
 }
 
 // clientReqMsg

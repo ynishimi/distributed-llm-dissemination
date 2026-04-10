@@ -49,7 +49,8 @@ type tempLayerInfo struct {
 	LayerID   LayerID
 	LayerSize int64
 	TotalSize int64
-	Offert    int64
+	Offset    int64
+	BlockID   BlockID
 	// SaveDisk  bool
 }
 
@@ -111,7 +112,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			return
 		}
 
-		if m.Type != MsgTypeLayer {
+		if m.Type != MsgTypeLayer && m.Type != MsgTypeBlock {
 			// notifies the message to upper layer, removing transportMsg part
 			msg, err := decodeMsg(m)
 			if err != nil {
@@ -124,7 +125,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			continue
 		}
 
-		// handles MsgTypeLayer
+		// handles MsgTypeLayer / MsgTypeBlock (binary payload)
 		// log.Debug().Msg("received LayerMsg")
 
 		// receive layer in binary
@@ -134,7 +135,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 
 		err = json.Unmarshal(m.Payload, &temp)
 		if err != nil {
-			log.Error().Err(err).Msg("failed to decode TransportMsg(MsgTypeLayer)")
+			log.Error().Err(err).Msg("failed to decode TransportMsg(MsgTypeLayer/MsgTypeBlock)")
 			return
 		}
 
@@ -219,7 +220,14 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			Msg("(a franction of) layer received")
 		// fixme: all the fraction of the layers are once saved in the buf and then copied again
 		layerSrc := LayerSrc{&buf, "", int64(len(buf)), 0, LayerMeta{Location: InmemLayer}}
-		t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc, temp.TotalSize}
+		if m.Type == MsgTypeBlock {
+			t.incomingMsgChan <- &blockMsg{
+				layerMsg: &layerMsg{temp.SrcID, temp.LayerID, layerSrc, temp.TotalSize},
+				BlockID:  temp.BlockID,
+			}
+		} else {
+			t.incomingMsgChan <- &layerMsg{temp.SrcID, temp.LayerID, layerSrc, temp.TotalSize}
+		}
 
 	}
 }
@@ -264,15 +272,22 @@ func (t *TcpTransport) Send(destID NodeID, message Message) error {
 		return fmt.Errorf("addr of %d does not exist", destID)
 	}
 
-	// for layerMsg, creates a new connection (to make use of parallelism)
+	// for layerMsg/blockMsg, creates a new connection (to make use of parallelism)
 	switch m := message.(type) {
-	case *layerMsg, *blockMsg:
+	case *layerMsg:
 		conn, err := net.Dial("tcp", dest)
 		if err != nil {
 			return err
 		}
 		defer conn.Close()
-		return t.sendLayerMsg(conn, m)
+		return t.sendLayerMsg(conn, m, 0, m.Type())
+	case *blockMsg:
+		conn, err := net.Dial("tcp", dest)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		return t.sendLayerMsg(conn, m.layerMsg, m.BlockID, m.Type())
 	}
 
 	conn, err := t.getOrConnect(dest)
@@ -306,10 +321,10 @@ func (t *TcpTransport) Broadcast(message Message) error {
 	return nil
 }
 
-func (t *TcpTransport) sendLayerMsg(conn net.Conn, layerMsg *layerMsg) error {
+func (t *TcpTransport) sendLayerMsg(conn net.Conn, layerMsg *layerMsg, blockID BlockID, msgType MsgType) error {
 
 	// sends header and layer separately for avoiding unnecesary memory occupation due to decoding
-	header := tempLayerInfo{layerMsg.SrcID, layerMsg.LayerID, layerMsg.LayerSrc.DataSize, layerMsg.TotalSize, layerMsg.LayerSrc.Offset}
+	header := tempLayerInfo{layerMsg.SrcID, layerMsg.LayerID, layerMsg.LayerSrc.DataSize, layerMsg.TotalSize, layerMsg.LayerSrc.Offset, blockID}
 
 	// sends header first
 	marshaledHdr, err := json.Marshal(header)
@@ -317,7 +332,7 @@ func (t *TcpTransport) sendLayerMsg(conn net.Conn, layerMsg *layerMsg) error {
 		return err
 	}
 	transportMsg := TransportMsg{
-		Type:    layerMsg.Type(),
+		Type:    msgType,
 		Src:     layerMsg.Src(),
 		Payload: marshaledHdr,
 	}
