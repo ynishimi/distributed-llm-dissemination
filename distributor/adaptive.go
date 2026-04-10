@@ -106,9 +106,22 @@ func (leader *AdaptiveLeaderNode) handleReqMsg(reqMsg *reqMsg) error {
 	return sendBlock(leader.node, leader.layers, &leader.mu, reqMsg)
 }
 
-// todo
 func (leader *AdaptiveLeaderNode) handleReportMsg(repoMsg *progressReportMsg) error {
+
+	// todo: collect reports (store msgs in somewhere?)
+
+	if leader.reportCollected() {
+		// update
+		// todo: leader.assignJobs()
+		// todo: leader.dispatchJobs()
+	}
+
 	return nil
+}
+
+func (leader *AdaptiveLeaderNode) reportCollected() bool {
+	// todo
+	return false
 }
 
 func (leader *AdaptiveLeaderNode) assignJobs() (t int64, selfJobsMap, jobsMap destJobs) {
@@ -240,12 +253,12 @@ func (receiver *AdaptiveReceiverNode) markReceived(blockMsg *blockMsg) {
 	}
 }
 
-func NewAdaptiveReceiverNode(node node, layers LayersSrc, storagePath string) *AdaptiveReceiverNode {
+func NewAdaptiveReceiverNode(node node, layers LayersSrc, storagePath string, layerManagerMap map[LayerID]*LayerManager) *AdaptiveReceiverNode {
 	receiverBase := newReceiverNodeBase(node, layers, storagePath)
 
 	arNode := &AdaptiveReceiverNode{
 		ReceiverNode:    receiverBase,
-		layerManagerMap: make(map[LayerID]*LayerManager),
+		layerManagerMap: layerManagerMap,
 	}
 
 	// todo: initialize layerManager (by reading config json file)
@@ -403,11 +416,13 @@ func (receiver *AdaptiveReceiverNode) requestPipeline(layerID LayerID, senderID 
 	}
 }
 
-func (receiver *AdaptiveReceiverNode) handleReqMsg(reqMsg *reqMsg) error {
-	return sendBlock(receiver.node, receiver.layers, &receiver.mu, reqMsg)
+func (receiver *AdaptiveReceiverNode) handleReqMsg(reqMsg *reqMsg) {
+	err := sendBlock(receiver.node, receiver.layers, &receiver.mu, reqMsg)
+	if err != nil {
+		log.Error().Err(err).Send()
+	}
 }
 
-// todo: sender sends blocks
 func sendBlock(n node, layers LayersSrc, mu *sync.RWMutex, reqMsg *reqMsg) error {
 
 	mu.RLock()
@@ -424,6 +439,12 @@ func sendBlock(n node, layers LayersSrc, mu *sync.RWMutex, reqMsg *reqMsg) error
 		blockLayerSrc.DataSize = BlockSize
 		blockLayerSrc.Offset = reqMsg.BlockID.getOffset()
 		blockLayerSrc.Meta.LimitRate = reqMsg.Rate
+
+		// todo: upon request, send the corresponding block
+
+		// set the limit rate
+
+		// measure the rate of network and disk
 
 		blockMsg := NewBlockMsg(n.GetMyID(), reqMsg.LayerID, blockLayerSrc, reqMsg.BlockID)
 		err := n.GetTransport().Send(reqMsg.SrcID, blockMsg)
@@ -465,12 +486,6 @@ func sendBlock(n node, layers LayersSrc, mu *sync.RWMutex, reqMsg *reqMsg) error
 
 	default:
 		log.Error().Msg("unknown location")
-
-		// upon request, send the corresponding block
-
-		// set the limit rate
-
-		// measure the rate of network and disk
 
 		return nil
 	}

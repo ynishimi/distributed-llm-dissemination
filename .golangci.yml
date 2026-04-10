@@ -1,0 +1,25 @@
+linters:
+  disable-all: true
+  enable:
+    - godox
+    - gocyclo
+    - cyclop
+    - funlen
+    - errcheck
+    - gosimple
+    - staticcheck
+    - unused
+
+linters-settings:
+  godox:
+    keywords:
+      - todo
+      - fixme
+  gocyclo:
+    min-complexity: 10
+  cyclop:
+    max-complexity: 10
+    package-average: 0.0
+  funlen:
+    lines: 60
+    statements: 40

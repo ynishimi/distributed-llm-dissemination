@@ -138,7 +138,8 @@ func main() {
 			log.Error().Err(err).Msg("leader failed")
 		}
 	} else {
-		err = RunReceiver(myID, n, leaderNodeConf.ID, t, layers, mode)
+		layerManagers := CreateLayerManagers(conf.Assignment[myID], conf.LayersConfMap)
+		err = RunReceiver(myID, n, leaderNodeConf.ID, t, layers, layerManagers, mode)
 		if err != nil {
 			log.Error().Err(err).Msg("receiver failed")
 		}
@@ -151,8 +152,8 @@ func RunLeader(myID distributor.NodeID, n *distributor.N, t distributor.Transpor
 
 	var leaderNode distributor.Leader
 	switch mode {
-	case 0:
-		leaderNode = distributor.NewLeaderNode(n, layers, assignment)
+	// case 0:
+	// 	leaderNode = distributor.NewLeaderNode(n, layers, assignment)
 	// case 1:
 	// 	leaderNode = distributor.NewRetransmitLeaderNode(n, layers, assignment)
 	// case 2:
@@ -182,19 +183,19 @@ func executeLeader(leader distributor.Leader) time.Duration {
 	return t1
 }
 
-func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor.NodeID, t distributor.Transport, layers distributor.LayersSrc, mode uint) error {
+func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor.NodeID, t distributor.Transport, layers distributor.LayersSrc, layerManagers map[distributor.LayerID]*distributor.LayerManager, mode uint) error {
 	fmt.Printf("launching receiver...\n[addr: %s, id: %v, filename: %s, storagePath: %v, mode: %v]\n", n.GetTransport().GetAddress(), myID, *fileName, *storagePath, mode)
 
 	var receiverNode distributor.Receiver
 	switch mode {
-	case 0:
-		receiverNode = distributor.NewReceiverNode(n, layers, *storagePath)
+	// case 0:
+	// receiverNode = distributor.NewReceiverNode(n, layers, *storagePath)
 	// case 1, 2:
 	// 	receiverNode = distributor.NewRetransmitReceiverNode(n, layers, *storagePath)
 	// case 3:
 	// 	receiverNode = distributor.NewFlowRetransmitReceiverNode(n, layers, *storagePath)
 	case 4:
-		receiverNode = distributor.NewAdaptiveReceiverNode(n, layers, *storagePath)
+		receiverNode = distributor.NewAdaptiveReceiverNode(n, layers, *storagePath, layerManagers)
 
 	default:
 		return fmt.Errorf("unknown mode")
