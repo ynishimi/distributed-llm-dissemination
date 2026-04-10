@@ -8,6 +8,7 @@ import (
 )
 
 const BlockSize = 256 * 1024
+const Pipeline = 5
 
 // AdaptiveLeaderNode implements flow-based adaptive leader node.
 type AdaptiveLeaderNode struct {
@@ -156,7 +157,9 @@ func (leader *AdaptiveLeaderNode) dispatchJobs(minTime int64, selfJobsMap, destJ
 
 			// this time, jobs are sent to receivers
 			err := leader.GetTransport().Send(destID, frMsg)
-			return err
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -176,7 +179,7 @@ func (leader *AdaptiveLeaderNode) dispatchJobs(minTime int64, selfJobsMap, destJ
 
 type AdaptiveReceiverNode struct {
 	*ReceiverNode
-	layerManagerMap map[LayerID]layerManager
+	layerManagerMap map[LayerID]*layerManager
 }
 
 type BlockID int
@@ -185,16 +188,27 @@ func (blockID *BlockID) getOffset() int64 {
 	return int64(*blockID) * BlockSize
 }
 
+type activeSender struct {
+	rate     int64
+	inflight chan struct{}
+	stop     chan struct{}
+}
+
 type layerManager struct {
 	receivedBlocks map[BlockID]struct{}
 	nextReqBlock   BlockID
-	// key: sender, val: rate
-	activeSenders map[NodeID]int64
+	// key: sender, val: rate, inflight, stop
+	activeSenders map[NodeID]activeSender
 }
 
 func (lm *layerManager) getNextAndIncrement() BlockID {
+	cur := lm.nextReqBlock
 	lm.nextReqBlock += 1
-	return lm.nextReqBlock
+	return cur
+}
+
+func (lm *layerManager) markReceived(blockID BlockID) {
+	lm.receivedBlocks[blockID] = struct{}{}
 }
 
 func NewAdaptiveReceiverNode(node node, layers LayersSrc, storagePath string) *AdaptiveReceiverNode {
@@ -202,7 +216,7 @@ func NewAdaptiveReceiverNode(node node, layers LayersSrc, storagePath string) *A
 
 	arNode := &AdaptiveReceiverNode{
 		ReceiverNode:    receiverBase,
-		layerManagerMap: make(map[LayerID]layerManager),
+		layerManagerMap: make(map[LayerID]*layerManager),
 	}
 
 	arNode.handleIncomingMsg()
@@ -221,6 +235,17 @@ func (receiver *AdaptiveReceiverNode) handleIncomingMsg() {
 				go receiver.handleJobMsg(v)
 			case *reqMsg:
 				go receiver.handleReqMsg(v)
+			case *blockMsg:
+				go func() {
+					// mark current block as received
+					lm := receiver.layerManagerMap[v.LayerID]
+					receiver.mu.Lock()
+					lm.markReceived(v.BlockID)
+					receiver.mu.Unlock()
+					// todo: request next block (if applicable)
+					lm.activeSenders[v.SrcID].inflight <- struct{}{}
+
+				}()
 			// start the inference engine
 			case *startupMsg:
 				go receiver.handleStartupMsg(v)
@@ -280,16 +305,16 @@ func (receiver *AdaptiveReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 
 // receivers request blocks based on the information in jobMsg
 func (receiver *AdaptiveReceiverNode) handleJobMsg(jobMsg *jobMsg) {
-	receiver.mu.Unlock()
+	receiver.mu.Lock()
 	defer receiver.mu.Unlock()
 
 	for _, lm := range receiver.layerManagerMap {
-		for activeSender := range lm.activeSenders {
-			// todo: stop all the active senders, possibly by using channels?
-
-			// todo: reset activeSenders
-
+		for _, senderInfo := range lm.activeSenders {
+			// stop all the active senders, using channels
+			close(senderInfo.stop)
 		}
+
+		lm.activeSenders = make(map[NodeID]activeSender)
 	}
 
 	// activeSenders field should be empty by this time; Fill it with new jobs
@@ -298,41 +323,54 @@ func (receiver *AdaptiveReceiverNode) handleJobMsg(jobMsg *jobMsg) {
 		// update layerManagerMap
 		_, ok := receiver.layerManagerMap[job.LayerID]
 		if !ok {
-			newManager := layerManager{
+			newManager := &layerManager{
 				receivedBlocks: make(map[BlockID]struct{}),
 				nextReqBlock:   0,
-				activeSenders:  make(map[NodeID]int64),
+				activeSenders:  make(map[NodeID]activeSender),
 			}
 			receiver.layerManagerMap[job.LayerID] = newManager
 		}
 
-		receiver.layerManagerMap[job.LayerID].activeSenders[job.SenderID] = job.Rate
-		// todo: start the goroutine
+		newSender := &activeSender{
+			rate:     job.Rate,
+			inflight: make(chan struct{}, Pipeline),
+			stop:     make(chan struct{}),
+		}
+
+		receiver.layerManagerMap[job.LayerID].activeSenders[job.SenderID] = *newSender
+
 		// maybe this causes deadlock? (mutex)
-		go receiver.requestPipeline(job.LayerID, job.SenderID, job.Rate)
+		go receiver.requestPipeline(job.LayerID, job.SenderID, newSender)
 	}
 
 }
 
-// todo: each combination of sender and layer has this
-// e.g., (layer 0, sender 0)
+// todo: each combination of sender and layer (e.g., (layer 0, sender 0)) has this
 // todo: this should be run separately in goroutine
-func (receiver *AdaptiveReceiverNode) requestPipeline(layerID LayerID, senderID NodeID, rate int64) {
-	receiver.mu.Lock()
+func (receiver *AdaptiveReceiverNode) requestPipeline(layerID LayerID, senderID NodeID, sender *activeSender) {
+	for {
+		// next request is dispatched as soon as inflight chan receive a new value
+		select {
+		case <-sender.stop:
+			return
+		case <-sender.inflight:
+			receiver.mu.Lock()
+			lm, ok := receiver.layerManagerMap[layerID]
+			if !ok {
+				log.Error().Msg("layerMsg not exist")
+			}
 
-	lm, ok := receiver.layerManagerMap[layerID]
-	if !ok {
-		log.Error().Msg("layerMsg not exist")
-	}
+			// create and send msg for getting next block
+			// todo: store total size and number of blocks of the layer
+			reqMsg := NewReqMsg(receiver.GetMyID(), layerID, senderID, lm.getNextAndIncrement(), sender.rate)
 
-	// create and send msg for getting next block
-	reqMsg := NewReqMsg(receiver.GetMyID(), layerID, senderID, lm.getNextAndIncrement(), rate)
+			receiver.mu.Unlock()
 
-	receiver.mu.Unlock()
-
-	err := receiver.GetTransport().Send(senderID, reqMsg)
-	if err != nil {
-		log.Error().Err(err).Send()
+			err := receiver.GetTransport().Send(senderID, reqMsg)
+			if err != nil {
+				log.Error().Err(err).Send()
+			}
+		}
 	}
 }
 
@@ -359,7 +397,8 @@ func sendBlock(n node, layers LayersSrc, mu *sync.RWMutex, reqMsg *reqMsg) error
 		blockLayerSrc.Meta.LimitRate = reqMsg.Rate
 
 		blockMsg := NewBlockMsg(n.GetMyID(), reqMsg.LayerID, blockLayerSrc, reqMsg.BlockID)
-		n.GetTransport().Send(reqMsg.SrcID, blockMsg)
+		err := n.GetTransport().Send(reqMsg.SrcID, blockMsg)
+		return err
 
 		// This happens only if the node should receive a layer from its client.
 		// For implementation wise, directly load it

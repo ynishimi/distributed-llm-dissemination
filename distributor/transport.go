@@ -265,13 +265,14 @@ func (t *TcpTransport) Send(destID NodeID, message Message) error {
 	}
 
 	// for layerMsg, creates a new connection (to make use of parallelism)
-	if layerMsg, ok := message.(*layerMsg); ok {
+	switch m := message.(type) {
+	case *layerMsg, *blockMsg:
 		conn, err := net.Dial("tcp", dest)
 		if err != nil {
 			return err
 		}
 		defer conn.Close()
-		return t.sendLayerMsg(conn, layerMsg)
+		return t.sendLayerMsg(conn, m)
 	}
 
 	conn, err := t.getOrConnect(dest)
