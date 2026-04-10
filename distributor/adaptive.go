@@ -55,15 +55,15 @@ func (leader *AdaptiveLeaderNode) handleIncomingMsg() {
 
 			case *announceMsg:
 				go leader.handleAnnounceMsg(v)
-			// case *ackMsg:
-			// 	go leader.handleAckMsg(v)
+			case *ackMsg:
+				go leader.handleAckMsg(v)
 			// 	// receive layer
 			case *reqMsg:
 				go leader.handleReqMsg(v)
 			case *progressReportMsg:
 				go leader.handleReportMsg(v)
-				// case *layerMsg:
-				// 	go leader.handleLayerMsg(v)
+			case *layerMsg:
+				go leader.handleLayerMsg(v)
 			}
 		}
 	}()
@@ -152,6 +152,8 @@ func (leader *AdaptiveLeaderNode) dispatchJobs(minTime int64, selfJobsMap, destJ
 	// self-assignment
 	for destID, jobInfos := range selfJobsMap {
 		for _, job := range jobInfos {
+			// fixme: currently only block 0 is requested
+			// todo: use clientReqMsg?
 			frMsg := NewReqMsg(
 				leader.node.GetMyID(), job.LayerID, job.SenderID, 0, job.Rate)
 
@@ -169,7 +171,9 @@ func (leader *AdaptiveLeaderNode) dispatchJobs(minTime int64, selfJobsMap, destJ
 
 		// this time, jobs are sent to receivers
 		err := leader.GetTransport().Send(destID, jobMsg)
-		return err
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -179,7 +183,7 @@ func (leader *AdaptiveLeaderNode) dispatchJobs(minTime int64, selfJobsMap, destJ
 
 type AdaptiveReceiverNode struct {
 	*ReceiverNode
-	layerManagerMap map[LayerID]*layerManager
+	layerManagerMap map[LayerID]*LayerManager
 }
 
 type BlockID int
@@ -188,27 +192,52 @@ func (blockID *BlockID) getOffset() int64 {
 	return int64(*blockID) * BlockSize
 }
 
-type activeSender struct {
+type ActiveSender struct {
 	rate     int64
 	inflight chan struct{}
 	stop     chan struct{}
 }
 
-type layerManager struct {
-	receivedBlocks map[BlockID]struct{}
-	nextReqBlock   BlockID
+type LayerManager struct {
+	ReceivedBlocks map[BlockID]struct{}
+	NextReqBlock   BlockID
+	TotalBlockNum  BlockID
 	// key: sender, val: rate, inflight, stop
-	activeSenders map[NodeID]activeSender
+	ActiveSenders map[NodeID]ActiveSender
 }
 
-func (lm *layerManager) getNextAndIncrement() BlockID {
-	cur := lm.nextReqBlock
-	lm.nextReqBlock += 1
-	return cur
+func (lm *LayerManager) getNextAndIncrement() (BlockID, bool) {
+	cur := lm.NextReqBlock
+	// no block remaining to be requested
+	if cur >= lm.TotalBlockNum {
+		return 0, false
+	}
+
+	lm.NextReqBlock += 1
+	return cur, true
 }
 
-func (lm *layerManager) markReceived(blockID BlockID) {
-	lm.receivedBlocks[blockID] = struct{}{}
+func (receiver *AdaptiveReceiverNode) markReceived(blockMsg *blockMsg) {
+	receiver.mu.Lock()
+
+	lm := receiver.layerManagerMap[blockMsg.LayerID]
+	lm.ReceivedBlocks[blockMsg.BlockID] = struct{}{}
+
+	receiveDone := len(lm.ReceivedBlocks) == int(lm.TotalBlockNum)
+
+	receiver.mu.Unlock()
+
+	if receiveDone {
+		// layer download completed; send ackMsg to leader
+		ackMsg := NewAckMsg(receiver.getLeader(), blockMsg.LayerID)
+		err := receiver.GetTransport().Send(receiver.getLeader(), ackMsg)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to send ackMsg")
+		}
+	} else {
+		// request next block
+		lm.ActiveSenders[blockMsg.SrcID].inflight <- struct{}{}
+	}
 }
 
 func NewAdaptiveReceiverNode(node node, layers LayersSrc, storagePath string) *AdaptiveReceiverNode {
@@ -216,8 +245,10 @@ func NewAdaptiveReceiverNode(node node, layers LayersSrc, storagePath string) *A
 
 	arNode := &AdaptiveReceiverNode{
 		ReceiverNode:    receiverBase,
-		layerManagerMap: make(map[LayerID]*layerManager),
+		layerManagerMap: make(map[LayerID]*LayerManager),
 	}
+
+	// todo: initialize layerManager (by reading config json file)
 
 	arNode.handleIncomingMsg()
 
@@ -238,12 +269,7 @@ func (receiver *AdaptiveReceiverNode) handleIncomingMsg() {
 			case *blockMsg:
 				go func() {
 					// mark current block as received
-					lm := receiver.layerManagerMap[v.LayerID]
-					receiver.mu.Lock()
-					lm.markReceived(v.BlockID)
-					receiver.mu.Unlock()
-					// todo: request next block (if applicable)
-					lm.activeSenders[v.SrcID].inflight <- struct{}{}
+					receiver.markReceived(v)
 
 				}()
 			// start the inference engine
@@ -295,7 +321,7 @@ func (receiver *AdaptiveReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 			Int64("total_bytes", layerMsg.TotalSize).
 			Msg("layer fully received")
 		// send ack to leader
-		ackMsg := NewAckMsg(receiver.node.GetMyID(), layerMsg.LayerID, layerSrc.Meta.Location)
+		ackMsg := NewAckMsg(receiver.node.GetMyID(), layerMsg.LayerID)
 		err := receiver.GetTransport().Send(receiver.getLeader(), ackMsg)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to send ackMsg")
@@ -309,12 +335,12 @@ func (receiver *AdaptiveReceiverNode) handleJobMsg(jobMsg *jobMsg) {
 	defer receiver.mu.Unlock()
 
 	for _, lm := range receiver.layerManagerMap {
-		for _, senderInfo := range lm.activeSenders {
+		for _, senderInfo := range lm.ActiveSenders {
 			// stop all the active senders, using channels
 			close(senderInfo.stop)
 		}
 
-		lm.activeSenders = make(map[NodeID]activeSender)
+		lm.ActiveSenders = make(map[NodeID]ActiveSender)
 	}
 
 	// activeSenders field should be empty by this time; Fill it with new jobs
@@ -323,31 +349,29 @@ func (receiver *AdaptiveReceiverNode) handleJobMsg(jobMsg *jobMsg) {
 		// update layerManagerMap
 		_, ok := receiver.layerManagerMap[job.LayerID]
 		if !ok {
-			newManager := &layerManager{
-				receivedBlocks: make(map[BlockID]struct{}),
-				nextReqBlock:   0,
-				activeSenders:  make(map[NodeID]activeSender),
-			}
-			receiver.layerManagerMap[job.LayerID] = newManager
+			log.Error().Msg("LayerManager not initialized")
 		}
 
-		newSender := &activeSender{
+		newSender := &ActiveSender{
 			rate:     job.Rate,
 			inflight: make(chan struct{}, Pipeline),
 			stop:     make(chan struct{}),
 		}
 
-		receiver.layerManagerMap[job.LayerID].activeSenders[job.SenderID] = *newSender
+		receiver.layerManagerMap[job.LayerID].ActiveSenders[job.SenderID] = *newSender
 
 		// maybe this causes deadlock? (mutex)
 		go receiver.requestPipeline(job.LayerID, job.SenderID, newSender)
+
+		// fill the pipeline with inflight structs
+		for range Pipeline {
+			newSender.inflight <- struct{}{}
+		}
 	}
 
 }
 
-// todo: each combination of sender and layer (e.g., (layer 0, sender 0)) has this
-// todo: this should be run separately in goroutine
-func (receiver *AdaptiveReceiverNode) requestPipeline(layerID LayerID, senderID NodeID, sender *activeSender) {
+func (receiver *AdaptiveReceiverNode) requestPipeline(layerID LayerID, senderID NodeID, sender *ActiveSender) {
 	for {
 		// next request is dispatched as soon as inflight chan receive a new value
 		select {
@@ -360,8 +384,14 @@ func (receiver *AdaptiveReceiverNode) requestPipeline(layerID LayerID, senderID 
 				log.Error().Msg("layerMsg not exist")
 			}
 
-			// create and send msg for getting next block
-			reqMsg := NewReqMsg(receiver.GetMyID(), layerID, senderID, lm.getNextAndIncrement(), sender.rate)
+			// create and send msg for getting next block (if any)
+			nextBlockID, ok := lm.getNextAndIncrement()
+			if !ok {
+				receiver.mu.Unlock()
+				return
+			}
+
+			reqMsg := NewReqMsg(receiver.GetMyID(), layerID, senderID, nextBlockID, sender.rate)
 
 			receiver.mu.Unlock()
 

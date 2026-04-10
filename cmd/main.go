@@ -84,7 +84,7 @@ func main() {
 
 		layers := make(distributor.LayersSrc)
 		for layerID, rateLimit := range myClientConf.LayersRateLimit {
-			layers[layerID] = CreateClientLayer(layerID, conf.LayerSize, rateLimit)
+			layers[layerID] = CreateClientLayer(layerID, conf.LayersConfMap[layerID].LayerSize, rateLimit)
 		}
 
 		RunClient(myClientConf.ID, t, layers)
@@ -98,11 +98,11 @@ func main() {
 	numPeers := uint(len(conf.Nodes))
 
 	// load (dummy) layers
-	layers := CreateLayers(myNodeConf, saveDisk)
+	layers := CreateLayers(myNodeConf, saveDisk, conf.LayersConfMap)
 
 	// If there is a client connecte to the node, add layers of it
 	if myClientConf != nil {
-		layers = AddClientLayers(myClientConf, conf.LayerSize, layers)
+		layers = AddClientLayers(myClientConf, conf.LayersConfMap, layers)
 	}
 
 	if *layerSetup {
@@ -153,10 +153,10 @@ func RunLeader(myID distributor.NodeID, n *distributor.N, t distributor.Transpor
 	switch mode {
 	case 0:
 		leaderNode = distributor.NewLeaderNode(n, layers, assignment)
-	case 1:
-		leaderNode = distributor.NewRetransmitLeaderNode(n, layers, assignment)
-	case 2:
-		leaderNode = distributor.NewPullRetransmitLeaderNode(n, layers, assignment)
+	// case 1:
+	// 	leaderNode = distributor.NewRetransmitLeaderNode(n, layers, assignment)
+	// case 2:
+	// 	leaderNode = distributor.NewPullRetransmitLeaderNode(n, layers, assignment)
 	// case 3:
 	// leaderNode = distributor.NewFlowRetransmitLeaderNode(n, layers, assignment, nodeNetworkBW)
 	case 4:
@@ -189,8 +189,8 @@ func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor
 	switch mode {
 	case 0:
 		receiverNode = distributor.NewReceiverNode(n, layers, *storagePath)
-	case 1, 2:
-		receiverNode = distributor.NewRetransmitReceiverNode(n, layers, *storagePath)
+	// case 1, 2:
+	// 	receiverNode = distributor.NewRetransmitReceiverNode(n, layers, *storagePath)
 	// case 3:
 	// 	receiverNode = distributor.NewFlowRetransmitReceiverNode(n, layers, *storagePath)
 	case 4:

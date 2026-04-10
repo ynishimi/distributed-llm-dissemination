@@ -216,60 +216,60 @@ func TestSimpleDistribution(t *testing.T) {
 			tr.Close()
 		}
 	})
-	t.Run("tcp_retransmission", func(t *testing.T) {
-		transports := createTcpTransports(NumPeers, LeaderNodeID)
-		t.Cleanup(func() {
-			for _, tr := range transports {
-				tr.Close()
-			}
-		})
+	// t.Run("tcp_retransmission", func(t *testing.T) {
+	// 	transports := createTcpTransports(NumPeers, LeaderNodeID)
+	// 	t.Cleanup(func() {
+	// 		for _, tr := range transports {
+	// 			tr.Close()
+	// 		}
+	// 	})
 
-		leaderFactory := func(n *distributor.N, layers distributor.LayersSrc, assignment distributor.Assignment) distributor.Leader {
-			return distributor.NewRetransmitLeaderNode(n, layers, assignment)
-		}
-		receiverFactory := func(n *distributor.N, layers distributor.LayersSrc) distributor.Receiver {
-			return distributor.NewRetransmitReceiverNode(n, layers, "")
-		}
-		leader, receivers := createRetransmitLeaderAndReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers, leaderFactory, receiverFactory)
-		_, ready := execDistribution(t, assignment, leader, receivers)
+	// 	leaderFactory := func(n *distributor.N, layers distributor.LayersSrc, assignment distributor.Assignment) distributor.Leader {
+	// 		return distributor.NewRetransmitLeaderNode(n, layers, assignment)
+	// 	}
+	// 	receiverFactory := func(n *distributor.N, layers distributor.LayersSrc) distributor.Receiver {
+	// 		return distributor.NewRetransmitReceiverNode(n, layers, "")
+	// 	}
+	// 	leader, receivers := createRetransmitLeaderAndReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers, leaderFactory, receiverFactory)
+	// 	_, ready := execDistribution(t, assignment, leader, receivers)
 
-		select {
-		case <-ready:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for message delivery")
-		}
+	// 	select {
+	// 	case <-ready:
+	// 	case <-time.After(time.Second):
+	// 		t.Error("timeout waiting for message delivery")
+	// 	}
 
-		for _, tr := range transports {
-			tr.Close()
-		}
-	})
-	t.Run("tcp_pullretransmission", func(t *testing.T) {
-		transports := createTcpTransports(NumPeers, LeaderNodeID)
-		t.Cleanup(func() {
-			for _, tr := range transports {
-				tr.Close()
-			}
-		})
+	// 	for _, tr := range transports {
+	// 		tr.Close()
+	// 	}
+	// })
+	// t.Run("tcp_pullretransmission", func(t *testing.T) {
+	// 	transports := createTcpTransports(NumPeers, LeaderNodeID)
+	// 	t.Cleanup(func() {
+	// 		for _, tr := range transports {
+	// 			tr.Close()
+	// 		}
+	// 	})
 
-		leaderFactory := func(n *distributor.N, layers distributor.LayersSrc, assignment distributor.Assignment) distributor.Leader {
-			return distributor.NewPullRetransmitLeaderNode(n, layers, assignment)
-		}
-		receiverFactory := func(n *distributor.N, layers distributor.LayersSrc) distributor.Receiver {
-			return distributor.NewRetransmitReceiverNode(n, layers, "")
-		}
-		leader, receivers := createRetransmitLeaderAndReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers, leaderFactory, receiverFactory)
-		_, ready := execDistribution(t, assignment, leader, receivers)
+	// 	leaderFactory := func(n *distributor.N, layers distributor.LayersSrc, assignment distributor.Assignment) distributor.Leader {
+	// 		return distributor.NewPullRetransmitLeaderNode(n, layers, assignment)
+	// 	}
+	// 	receiverFactory := func(n *distributor.N, layers distributor.LayersSrc) distributor.Receiver {
+	// 		return distributor.NewRetransmitReceiverNode(n, layers, "")
+	// 	}
+	// 	leader, receivers := createRetransmitLeaderAndReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers, leaderFactory, receiverFactory)
+	// 	_, ready := execDistribution(t, assignment, leader, receivers)
 
-		select {
-		case <-ready:
-		case <-time.After(time.Second):
-			t.Error("timeout waiting for message delivery")
-		}
+	// 	select {
+	// 	case <-ready:
+	// 	case <-time.After(time.Second):
+	// 		t.Error("timeout waiting for message delivery")
+	// 	}
 
-		for _, tr := range transports {
-			tr.Close()
-		}
-	})
+	// 	for _, tr := range transports {
+	// 		tr.Close()
+	// 	}
+	// })
 }
 
 func BenchmarkSimpleDistributionTcp(b *testing.B) {
@@ -301,26 +301,26 @@ func BenchmarkSimpleDistributionTcp(b *testing.B) {
 		}
 	})
 
-	b.Run("tcp_retransmission", func(b *testing.B) {
-		transports := createTcpTransports(NumPeers, LeaderNodeID)
+	// b.Run("tcp_retransmission", func(b *testing.B) {
+	// 	transports := createTcpTransports(NumPeers, LeaderNodeID)
 
-		leaderFactory := func(n *distributor.N, layers distributor.LayersSrc, assignment distributor.Assignment) distributor.Leader {
-			return distributor.NewRetransmitLeaderNode(n, layers, assignment)
-		}
-		receiverFactory := func(n *distributor.N, layers distributor.LayersSrc) distributor.Receiver {
-			return distributor.NewRetransmitReceiverNode(n, layers, "")
-		}
-		leader, receivers := createRetransmitLeaderAndReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers, leaderFactory, receiverFactory)
-		start, ready := execDistribution(b, assignment, leader, receivers)
+	// 	leaderFactory := func(n *distributor.N, layers distributor.LayersSrc, assignment distributor.Assignment) distributor.Leader {
+	// 		return distributor.NewRetransmitLeaderNode(n, layers, assignment)
+	// 	}
+	// 	receiverFactory := func(n *distributor.N, layers distributor.LayersSrc) distributor.Receiver {
+	// 		return distributor.NewRetransmitReceiverNode(n, layers, "")
+	// 	}
+	// 	leader, receivers := createRetransmitLeaderAndReceivers(transports, *assignment, *layers, LeaderNodeID, NumReceivers, leaderFactory, receiverFactory)
+	// 	start, ready := execDistribution(b, assignment, leader, receivers)
 
-		<-start
-		b.ResetTimer()
+	// 	<-start
+	// 	b.ResetTimer()
 
-		<-ready
-		b.StopTimer()
+	// 	<-ready
+	// 	b.StopTimer()
 
-		for _, tr := range transports {
-			tr.Close()
-		}
-	})
+	// 	for _, tr := range transports {
+	// 		tr.Close()
+	// 	}
+	// })
 }

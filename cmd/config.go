@@ -12,10 +12,14 @@ import (
 )
 
 type config struct {
-	Nodes      []NodeConf
-	Clients    []ClientConf
-	Assignment distributor.Assignment
-	LayerSize  int64
+	Nodes         []NodeConf
+	Clients       []ClientConf
+	LayersConfMap map[distributor.LayerID]layerConf
+	Assignment    distributor.Assignment
+}
+
+type layerConf struct {
+	LayerSize int64
 }
 
 type NodeConf struct {
@@ -29,11 +33,7 @@ type NodeConf struct {
 
 type InitialLayers map[distributor.SourceType]InitLayersBySource
 
-type InitLayersBySource map[distributor.LayerID]InitialLayerConf
-
-type InitialLayerConf struct {
-	LayerSize int64
-}
+type InitLayersBySource map[distributor.LayerID]struct{}
 
 // set of LayerIDs for clients
 type LayerIDsRateLimit map[distributor.LayerID]int64
@@ -91,12 +91,12 @@ func GetClientConf(conf *config, node distributor.NodeID) (*ClientConf, error) {
 	return nil, fmt.Errorf("no client found")
 }
 
-func CreateLayers(myConf NodeConf, saveDisk bool) distributor.LayersSrc {
+func CreateLayers(myConf NodeConf, saveDisk bool, layerConfMap map[distributor.LayerID]layerConf) distributor.LayersSrc {
 	layers := make(distributor.LayersSrc)
 
 	for sourceType, layersBySource := range myConf.InitialLayers {
-		for layerID, initialLayerConf := range layersBySource {
-			currentLayerSize := initialLayerConf.LayerSize
+		for layerID := range layersBySource {
+			currentLayerSize := layerConfMap[layerID].LayerSize
 			if currentLayerSize < 0 {
 				currentLayerSize = 0
 			}
@@ -116,14 +116,14 @@ func CreateLayers(myConf NodeConf, saveDisk bool) distributor.LayersSrc {
 	return layers
 }
 
-func AddClientLayers(clientConf *ClientConf, layerSize int64, layers distributor.LayersSrc) distributor.LayersSrc {
+func AddClientLayers(clientConf *ClientConf, layerConfMap map[distributor.LayerID]layerConf, layers distributor.LayersSrc) distributor.LayersSrc {
 	for layerID, limitRate := range clientConf.LayersRateLimit {
 		if _, ok := layers[layerID]; ok {
 			// already in memory/disk
 			continue
 		}
 
-		layers[layerID] = CreateClientLayerInfo(layerID, layerSize, limitRate)
+		layers[layerID] = CreateClientLayerInfo(layerID, layerConfMap[layerID].LayerSize, limitRate)
 
 	}
 
@@ -195,6 +195,23 @@ func CreateClientLayerInfo(layerID distributor.LayerID, layerSize int64, limitRa
 			LimitRate: limitRate,
 		},
 	}
+}
+
+// Create a set of layer managers for receivers
+func CreateLayerManagers(layerIDs distributor.LayerIDs, layersMap map[distributor.LayerID]layerConf) map[distributor.LayerID]*distributor.LayerManager {
+	layerManagers := make(map[distributor.LayerID]*distributor.LayerManager)
+
+	for layerID := range layerIDs {
+		newManager := &distributor.LayerManager{
+			ReceivedBlocks: make(map[distributor.BlockID]struct{}),
+			NextReqBlock:   0,
+			TotalBlockNum:  distributor.BlockID(layersMap[layerID].LayerSize / distributor.BlockSize),
+			ActiveSenders:  make(map[distributor.NodeID]distributor.ActiveSender),
+		}
+		layerManagers[layerID] = newManager
+	}
+
+	return layerManagers
 }
 
 // // PrintJsonExample prints an example of config.

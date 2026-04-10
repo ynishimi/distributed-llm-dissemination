@@ -63,16 +63,16 @@ func (m *announceMsg) String() string {
 // ackMsg
 
 type ackMsg struct {
-	SrcID    NodeID
-	LayerID  LayerID
-	location LayerLocation
+	SrcID   NodeID
+	LayerID LayerID
+	// location LayerLocation
 }
 
-func NewAckMsg(src NodeID, layerID LayerID, layerLocation LayerLocation) *ackMsg {
+func NewAckMsg(src NodeID, layerID LayerID) *ackMsg {
 	return &ackMsg{
-		SrcID:    src,
-		LayerID:  layerID,
-		location: layerLocation,
+		SrcID:   src,
+		LayerID: layerID,
+		// location: layerLocation,
 	}
 }
 
