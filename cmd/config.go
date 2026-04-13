@@ -12,10 +12,10 @@ import (
 )
 
 type config struct {
-	Nodes         []NodeConf
-	Clients       []ClientConf
-	LayersConfMap map[distributor.LayerID]layerConf
-	Assignment    distributor.Assignment
+	Nodes      []NodeConf
+	Clients    []ClientConf
+	Layers     map[distributor.LayerID]layerConf
+	Assignment distributor.Assignment
 }
 
 type layerConf struct {

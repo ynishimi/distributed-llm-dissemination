@@ -84,7 +84,7 @@ func main() {
 
 		layers := make(distributor.LayersSrc)
 		for layerID, rateLimit := range myClientConf.LayersRateLimit {
-			layers[layerID] = CreateClientLayer(layerID, conf.LayersConfMap[layerID].LayerSize, rateLimit)
+			layers[layerID] = CreateClientLayer(layerID, conf.Layers[layerID].LayerSize, rateLimit)
 		}
 
 		RunClient(myClientConf.ID, t, layers)
@@ -98,11 +98,11 @@ func main() {
 	numPeers := uint(len(conf.Nodes))
 
 	// load (dummy) layers
-	layers := CreateLayers(myNodeConf, saveDisk, conf.LayersConfMap)
+	layers := CreateLayers(myNodeConf, saveDisk, conf.Layers)
 
 	// If there is a client connecte to the node, add layers of it
 	if myClientConf != nil {
-		layers = AddClientLayers(myClientConf, conf.LayersConfMap, layers)
+		layers = AddClientLayers(myClientConf, conf.Layers, layers)
 	}
 
 	if *layerSetup {
@@ -138,7 +138,7 @@ func main() {
 			log.Error().Err(err).Msg("leader failed")
 		}
 	} else {
-		layerManagers := CreateLayerManagers(conf.Assignment[myID], conf.LayersConfMap)
+		layerManagers := CreateLayerManagers(conf.Assignment[myID], conf.Layers)
 		err = RunReceiver(myID, n, leaderNodeConf.ID, t, layers, layerManagers, mode)
 		if err != nil {
 			log.Error().Err(err).Msg("receiver failed")

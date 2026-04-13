@@ -245,7 +245,9 @@ func (receiver *AdaptiveReceiverNode) markReceived(blockMsg *blockMsg) {
 
 	if receiveDone {
 		// layer download completed; send ackMsg to leader
-		ackMsg := NewAckMsg(receiver.getLeader(), blockMsg.LayerID)
+		log.Info().Uint("layer", uint(blockMsg.LayerID)).Msg("layer download completed")
+
+		ackMsg := NewAckMsg(receiver.GetMyID(), blockMsg.LayerID)
 		err := receiver.GetTransport().Send(receiver.getLeader(), ackMsg)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to send ackMsg")
