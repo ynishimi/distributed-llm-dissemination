@@ -5,15 +5,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/rs/zerolog/log"
 	"github.com/ynishimi/distributed-llm-dissemination/distributor"
 )
 
 type config struct {
-	Nodes      []NodeConf
-	Clients    []ClientConf
+	Nodes []NodeConf
+	// Clients    []ClientConf
 	Layers     map[distributor.LayerID]layerConf
 	Assignment distributor.Assignment
 }
@@ -38,11 +37,11 @@ type InitLayersBySource map[distributor.LayerID]struct{}
 // set of LayerIDs for clients
 type LayerIDsRateLimit map[distributor.LayerID]int64
 
-type ClientConf struct {
-	ID              distributor.NodeID
-	Addr            string
-	LayersRateLimit LayerIDsRateLimit `json:"Layers"`
-}
+// type ClientConf struct {
+// 	ID              distributor.NodeID
+// 	Addr            string
+// 	LayersRateLimit LayerIDsRateLimit `json:"Layers"`
+// }
 
 // ReadJson reads Json file and returns config struct.
 func ReadJson(fileName string) (*config, error) {
@@ -81,17 +80,17 @@ func GetNodeConf(conf *config, node distributor.NodeID) (NodeConf, error) {
 	return NodeConf{}, fmt.Errorf("no node found")
 }
 
-func GetClientConf(conf *config, node distributor.NodeID) (*ClientConf, error) {
-	// gets leader ID
-	for _, clientConf := range conf.Clients {
-		if clientConf.ID == node {
-			return &clientConf, nil
-		}
-	}
-	return nil, fmt.Errorf("no client found")
-}
+// func GetClientConf(conf *config, node distributor.NodeID) (*ClientConf, error) {
+// 	// gets leader ID
+// 	for _, clientConf := range conf.Clients {
+// 		if clientConf.ID == node {
+// 			return &clientConf, nil
+// 		}
+// 	}
+// 	return nil, fmt.Errorf("no client found")
+// }
 
-func CreateLayers(myConf NodeConf, saveDisk bool, layerConfMap map[distributor.LayerID]layerConf) distributor.LayersSrc {
+func CreateLayers(myConf NodeConf, layerConfMap map[distributor.LayerID]layerConf) distributor.LayersSrc {
 	layers := make(distributor.LayersSrc)
 
 	for sourceType, layersBySource := range myConf.InitialLayers {
@@ -100,61 +99,52 @@ func CreateLayers(myConf NodeConf, saveDisk bool, layerConfMap map[distributor.L
 			if currentLayerSize < 0 {
 				currentLayerSize = 0
 			}
-
-			var layerSrc distributor.LayerSrc
-			if saveDisk {
-				layerSrc = CreateDiskLayer(myConf.ID, layerID, currentLayerSize, *storagePath)
-			} else {
-				layerSrc = CreateInmemLayer(layerID, currentLayerSize)
-			}
-			layerSrc.DataSize = currentLayerSize
-			layerSrc.Meta.LimitRate = myConf.Sources[sourceType]
-			layers[layerID] = layerSrc
+			layers[layerID] = CreateClientLayer(layerID, currentLayerSize, myConf.Sources[sourceType])
 		}
 	}
 
 	return layers
 }
 
-func AddClientLayers(clientConf *ClientConf, layerConfMap map[distributor.LayerID]layerConf, layers distributor.LayersSrc) distributor.LayersSrc {
-	for layerID, limitRate := range clientConf.LayersRateLimit {
-		if _, ok := layers[layerID]; ok {
-			// already in memory/disk
-			continue
-		}
+// func AddClientLayers(clientConf *ClientConf, layerConfMap map[distributor.LayerID]layerConf, layers distributor.LayersSrc) distributor.LayersSrc {
+// 	for layerID, limitRate := range clientConf.LayersRateLimit {
+// 		if _, ok := layers[layerID]; ok {
+// 			// already in memory/disk
+// 			continue
+// 		}
 
-		layers[layerID] = CreateClientLayerInfo(layerID, layerConfMap[layerID].LayerSize, limitRate)
+// 		layers[layerID] = CreateClientLayerInfo(layerID, layerConfMap[layerID].LayerSize, limitRate)
 
-	}
+// 	}
 
-	return layers
-}
+// 	return layers
+// }
 
-func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layerSize int64, storagePath string) distributor.LayerSrc {
-	// save as myID/layerID.layer
-	dir := filepath.Join(storagePath, "layers/", fmt.Sprintf("%d", myID))
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		log.Error().Err(err).Msg("failed to create directory")
-	}
-	path := filepath.Join(dir, fmt.Sprintf("%d.layer", layerID))
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		dummyLayerData := distributor.LayerData(make([]byte, layerSize))
-		err = os.WriteFile(path, dummyLayerData, 0644)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to write file")
-		}
-	}
+// func CreateDiskLayer(myID distributor.NodeID, layerID distributor.LayerID, layerSize int64, storagePath string) distributor.LayerSrc {
+// 	// save as myID/layerID.layer
+// 	dir := filepath.Join(storagePath, "layers/", fmt.Sprintf("%d", myID))
+// 	if err := os.MkdirAll(dir, 0755); err != nil {
+// 		log.Error().Err(err).Msg("failed to create directory")
+// 	}
+// 	path := filepath.Join(dir, fmt.Sprintf("%d.layer", layerID))
+// 	if _, err := os.Stat(path); os.IsNotExist(err) {
+// 		dummyLayerData := distributor.LayerData(make([]byte, layerSize))
+// 		err = os.WriteFile(path, dummyLayerData, 0644)
+// 		if err != nil {
+// 			log.Error().Err(err).Msg("failed to write file")
+// 		}
+// 	}
 
-	return distributor.LayerSrc{
-		InmemData: nil,
-		Fp:        path,
-		DataSize:  layerSize,
-		Offset:    0,
-		Meta: distributor.LayerMeta{
-			Location: distributor.DiskLayer,
-		},
-	}
-}
+// 	return distributor.LayerSrc{
+// 		InmemData: nil,
+// 		Fp:        path,
+// 		DataSize:  layerSize,
+// 		Offset:    0,
+// 		Meta: distributor.LayerMeta{
+// 			Location: distributor.DiskLayer,
+// 		},
+// 	}
+// }
 
 func CreateInmemLayer(layerID distributor.LayerID, layerSize int64) distributor.LayerSrc {
 	// add dummy data in memory
@@ -175,7 +165,7 @@ func CreateClientLayer(layerID distributor.LayerID, layerSize int64, limitRate i
 	layerSrc := CreateInmemLayer(layerID, layerSize)
 	layerSrc.Meta = distributor.LayerMeta{
 		// the layer is stored in memory of the client
-		Location:  distributor.InmemLayer,
+		Location:  distributor.ClientLayer,
 		LimitRate: limitRate,
 	}
 
@@ -183,19 +173,19 @@ func CreateClientLayer(layerID distributor.LayerID, layerSize int64, limitRate i
 	return layerSrc
 }
 
-// CreateClientLayerInfo creates layerSrc information remembered by the node.
-func CreateClientLayerInfo(layerID distributor.LayerID, layerSize int64, limitRate int64) distributor.LayerSrc {
-	return distributor.LayerSrc{
-		InmemData: nil,
-		Fp:        "",
-		DataSize:  layerSize,
-		Offset:    0,
-		Meta: distributor.LayerMeta{
-			Location:  distributor.ClientLayer,
-			LimitRate: limitRate,
-		},
-	}
-}
+// // CreateClientLayerInfo creates layerSrc information remembered by the node.
+// func CreateClientLayerInfo(layerID distributor.LayerID, layerSize int64, limitRate int64) distributor.LayerSrc {
+// 	return distributor.LayerSrc{
+// 		InmemData: nil,
+// 		Fp:        "",
+// 		DataSize:  layerSize,
+// 		Offset:    0,
+// 		Meta: distributor.LayerMeta{
+// 			Location:  distributor.ClientLayer,
+// 			LimitRate: limitRate,
+// 		},
+// 	}
+// }
 
 // Create a set of layer managers for receivers
 func CreateLayerManagers(layerIDs distributor.LayerIDs, layersMap map[distributor.LayerID]layerConf) map[distributor.LayerID]*distributor.LayerManager {

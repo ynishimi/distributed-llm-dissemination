@@ -348,21 +348,9 @@ func (t *TcpTransport) sendLayerMsg(conn net.Conn, layerMsg *layerMsg, blockID B
 
 	if inmemData := layerMsg.LayerSrc.InmemData; inmemData != nil && layerMsg.LayerSrc.Meta.Location == InmemLayer {
 		// sends layerData directly
-		if t.isClient {
-			err := t.writeWithLimit(layerMsg.LayerSrc.Meta.LimitRate, layerMsg.LayerID, *inmemData, conn)
-			if err != nil {
-				return err
-			}
-		} else {
-			// the node sends a layer to its dest
-			partialData := (*layerMsg.LayerSrc.InmemData)[layerMsg.LayerSrc.Offset : layerMsg.LayerSrc.Offset+layerMsg.LayerSrc.DataSize]
-
-			// _, err = conn.Write(partialData)
-			err := t.writeWithLimit(layerMsg.LayerSrc.Meta.LimitRate, layerMsg.LayerID, partialData, conn)
-
-			if err != nil {
-				return err
-			}
+		err := t.write(layerMsg.LayerID, *inmemData, conn)
+		if err != nil {
+			return err
 		}
 	} else if layerMsg.LayerSrc.Meta.Location == DiskLayer {
 		if layerMsg.LayerSrc.Fp == "" {
@@ -420,15 +408,29 @@ func (t *TcpTransport) sendTransportMsg(pConn *protectedConn, message Message) e
 
 }
 
+func (t *TcpTransport) write(layerID LayerID, data LayerData, conn net.Conn) error {
+	_, err := conn.Write(data)
+	if err != nil {
+		return err
+	}
+
+	log.Debug().Uint("layerID", uint(layerID)).Msg("completed")
+
+	return nil
+}
+
 func (t *TcpTransport) writeWithLimit(limitRate int64, layerID LayerID, data LayerData, conn net.Conn) error {
-	const BucketSize = 256 * 1024
+	const BucketSize = 1024
 	limiter := rate.NewLimiter(rate.Limit(limitRate), BucketSize)
 	// limit speed
 	log.Debug().Uint("layerID", uint(layerID)).Msgf("sending with limit: %v MiB/s", int64(limiter.Limit())>>20)
 	for len(data) > 0 {
 		n := min(len(data), limiter.Burst())
-		limiter.WaitN(context.Background(), n)
-		_, err := conn.Write(data[:n])
+		err := limiter.WaitN(context.Background(), n)
+		if err != nil {
+			return err
+		}
+		_, err = conn.Write(data[:n])
 		if err != nil {
 			return err
 		}

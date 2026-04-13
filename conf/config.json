@@ -6,7 +6,7 @@
             "NetworkBW": 1562500000,
             "IsLeader": true,
             "Sources": {
-                "0": 16257500,
+                "0": 262144,
                 "1": 209715200
             },
             "InitialLayers": {
@@ -21,7 +21,7 @@
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "Sources": {
-                "0": 16257500,
+                "0": 262144,
                 "1": 209715200
             },
             "InitialLayers": {
@@ -36,7 +36,7 @@
             "NetworkBW": 1562500000,
             "IsLeader": false,
             "Sources": {
-                "0": 16257500,
+                "0": 262144,
                 "1": 209715200
             },
             "InitialLayers": {}
@@ -44,7 +44,7 @@
     ],
     "Layers": {
         "0": {
-            "LayerSize": 1048576
+            "LayerSize": 2621440
         }
     },
     "Assignment": {

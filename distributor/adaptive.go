@@ -1,6 +1,7 @@
 package distributor
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ type AdaptiveLeaderNode struct {
 	*LeaderNode
 	LayerDests    map[LayerID]NodeID // caution: only one dest is accepted in this implementaion!
 	NodeNetworkBW map[NodeID]int64
+	client        Client
 }
 
 func NewAdaptiveLeaderNode(node node, layers LayersSrc, assignment Assignment, nodeNetworkBW map[NodeID]int64) *AdaptiveLeaderNode {
@@ -38,7 +40,7 @@ func NewAdaptiveLeaderNode(node node, layers LayersSrc, assignment Assignment, n
 		networkBW[nodeID] = bw
 	}
 
-	alNode := &AdaptiveLeaderNode{leaderBase, layerDests, networkBW}
+	alNode := &AdaptiveLeaderNode{leaderBase, layerDests, networkBW, NewInmemClient(node, layers, &leaderBase.mu)}
 
 	// alNode.sendLayersFn = alNode.sendLayers
 
@@ -103,7 +105,7 @@ func (leader *AdaptiveLeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
 }
 
 func (leader *AdaptiveLeaderNode) handleReqMsg(reqMsg *reqMsg) error {
-	return sendBlock(leader.node, leader.layers, &leader.mu, reqMsg)
+	return sendBlock(leader.node, leader.client, leader.layers, &leader.mu, reqMsg)
 }
 
 func (leader *AdaptiveLeaderNode) handleReportMsg(repoMsg *progressReportMsg) error {
@@ -167,7 +169,8 @@ func (leader *AdaptiveLeaderNode) dispatchJobs(minTime int64, selfJobsMap, destJ
 		for _, job := range jobInfos {
 			// fixme: currently only block 0 is requested
 			// todo: use clientReqMsg?
-			frMsg := NewReqMsg(leader.node.GetMyID(), job.LayerID, job.SenderID, 0, job.Rate)
+			frMsg := NewReqMsg(
+				leader.node.GetMyID(), job.LayerID, job.SenderID, 0, job.Rate)
 
 			// this time, jobs are sent to receivers
 			err := leader.GetTransport().Send(destID, frMsg)
@@ -181,16 +184,12 @@ func (leader *AdaptiveLeaderNode) dispatchJobs(minTime int64, selfJobsMap, destJ
 	for destID, jobs := range destJobs {
 		jobMsg := NewJobMsg(leader.node.GetMyID(), jobs)
 
-		log.Info().Uint("destID", uint(destID)).Send()
-
 		// this time, jobs are sent to receivers
 		err := leader.GetTransport().Send(destID, jobMsg)
 		if err != nil {
 			return err
 		}
 	}
-
-	log.Info().Msg("Jobs dispatched")
 
 	return nil
 }
@@ -200,6 +199,7 @@ func (leader *AdaptiveLeaderNode) dispatchJobs(minTime int64, selfJobsMap, destJ
 type AdaptiveReceiverNode struct {
 	*ReceiverNode
 	layerManagerMap map[LayerID]*LayerManager
+	client          Client
 }
 
 type BlockID int
@@ -245,8 +245,6 @@ func (receiver *AdaptiveReceiverNode) markReceived(blockMsg *blockMsg) {
 
 	if receiveDone {
 		// layer download completed; send ackMsg to leader
-		log.Info().Uint("layer", uint(blockMsg.LayerID)).Msg("layer download completed")
-
 		ackMsg := NewAckMsg(receiver.GetMyID(), blockMsg.LayerID)
 		err := receiver.GetTransport().Send(receiver.getLeader(), ackMsg)
 		if err != nil {
@@ -264,9 +262,8 @@ func NewAdaptiveReceiverNode(node node, layers LayersSrc, storagePath string, la
 	arNode := &AdaptiveReceiverNode{
 		ReceiverNode:    receiverBase,
 		layerManagerMap: layerManagerMap,
+		client:          NewInmemClient(node, layers, &receiverBase.mu),
 	}
-
-	// todo: initialize layerManager (by reading config json file)
 
 	arNode.handleIncomingMsg()
 
@@ -349,9 +346,6 @@ func (receiver *AdaptiveReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 
 // receivers request blocks based on the information in jobMsg
 func (receiver *AdaptiveReceiverNode) handleJobMsg(jobMsg *jobMsg) {
-
-	log.Info().Msgf("handleJobMsg: %v", jobMsg)
-
 	receiver.mu.Lock()
 	defer receiver.mu.Unlock()
 
@@ -425,152 +419,31 @@ func (receiver *AdaptiveReceiverNode) requestPipeline(layerID LayerID, senderID 
 }
 
 func (receiver *AdaptiveReceiverNode) handleReqMsg(reqMsg *reqMsg) {
-	err := sendBlock(receiver.node, receiver.layers, &receiver.mu, reqMsg)
+	err := sendBlock(receiver.node, receiver.client, receiver.layers, &receiver.mu, reqMsg)
 	if err != nil {
 		log.Error().Err(err).Send()
 	}
 }
 
-func sendBlock(n node, layers LayersSrc, mu *sync.RWMutex, reqMsg *reqMsg) error {
+func sendBlock(n node, client Client, layers LayersSrc, mu *sync.RWMutex, reqMsg *reqMsg) error {
 
 	mu.RLock()
 	layerSrc := layers[reqMsg.LayerID]
 	mu.RUnlock()
 
-	n.addNode(reqMsg.SrcID)
-
-	var blockLayerSrc LayerSrc
-	blockLayerSrc = layerSrc
+	n.addNode(reqMsg.DestID)
 
 	switch layerSrc.Meta.Location {
 	case InmemLayer, DiskLayer:
-		blockLayerSrc.DataSize = BlockSize
-		blockLayerSrc.Offset = reqMsg.BlockID.getOffset()
-		blockLayerSrc.Meta.LimitRate = reqMsg.Rate
+		return fmt.Errorf("not implemented")
 
-		// todo: upon request, send the corresponding block
+	case ClientLayer:
 
-		// set the limit rate
-
-		// measure the rate of network and disk
-
-		blockMsg := NewBlockMsg(n.GetMyID(), reqMsg.LayerID, blockLayerSrc, reqMsg.BlockID)
+		blockMsg := NewBlockMsg(n.GetMyID(), reqMsg.LayerID, client.FetchBlock(blockReq{reqMsg.LayerID, reqMsg.BlockID, make(chan LayerSrc)}), reqMsg.BlockID)
 		err := n.GetTransport().Send(reqMsg.SrcID, blockMsg)
 		return err
 
-		// This happens only if the node should receive a layer from its client.
-		// For implementation wise, directly load it
-	case ClientLayer:
-		// todo
-
-		// go func() {
-		// 	data := *layerSrc.InmemData
-		// 	partial := data[reqMsg.Offset : reqMsg.Offset+reqMsg.DataSize]
-
-		// 	const BucketSize = 256 * 1024
-		// 	limiter := rate.NewLimiter(rate.Limit(reqMsg.Rate), BucketSize)
-		// 	buf := make(LayerData, len(partial))
-		// 	pos := 0
-		// 	for pos < len(partial) {
-		// 		n := min(len(partial)-pos, limiter.Burst())
-		// 		limiter.WaitN(context.Background(), n)
-		// 		copy(buf[pos:], partial[pos:pos+n])
-		// 		pos += n
-		// 	}
-
-		// 	partialLayerSrc := LayerSrc{
-		// 		InmemData: &buf,
-		// 		DataSize:  reqMsg.DataSize,
-		// 		Offset:    reqMsg.Offset,
-		// 		Meta:      LayerMeta{Location: InmemLayer},
-		// 	}
-		// 	localMsg := NewBlockMsg(n.GetMyID(), reqMsg.LayerID, partialLayerSrc, layerSrc.DataSize)
-		// 	n.GetTransport().(*TcpTransport).incomingMsgChan <- localMsg
-		// }()
-
-		log.Error().Msg("todo: client layer not implemented")
-
-		return nil
-
 	default:
-		log.Error().Msg("unknown location")
-
-		return nil
+		return fmt.Errorf("unknown location")
 	}
 }
-
-// func (receiver *AdaptiveReceiverNode) handleFlowRetransmitMsg(frMsg *reqMsg) error {
-// 	t0 := time.Now()
-// 	log.Info().
-// 		Uint("layer", uint(frMsg.LayerID)).
-// 		Uint("dest", uint(frMsg.DestID)).
-// 		Int64("size", frMsg.DataSize).
-// 		Int64("rate", frMsg.Rate).
-// 		Msg("start sending layer")
-
-// 	err := handleFlowRetransmit(receiver.node, receiver.layers, &receiver.mu, frMsg)
-
-// 	t1 := time.Since(t0)
-
-// 	log.Info().
-// 		Uint("layer", uint(frMsg.LayerID)).
-// 		Uint("dest", uint(frMsg.DestID)).
-// 		Dur("send_dur", t1).
-// 		Int64("throughput[MiB/s]", frMsg.DataSize/t1.Milliseconds()*1000>>20).
-// 		Msg("finished sending layer")
-// 	return err
-// }
-
-// // handleFlowRetransmit sends a (part of) layer to the receiver.
-// func handleFlowRetransmit(n node, layers LayersSrc, mu *sync.RWMutex, frMsg *reqMsg) error {
-// 	mu.RLock()
-// 	layerSrc := layers[frMsg.LayerID]
-// 	mu.RUnlock()
-
-// 	n.addNode(frMsg.DestID)
-
-// 	var partialLayerSrc LayerSrc
-// 	partialLayerSrc = layerSrc
-
-// 	switch layerSrc.Meta.Location {
-// 	case InmemLayer, DiskLayer:
-// 		partialLayerSrc.DataSize = frMsg.DataSize
-// 		partialLayerSrc.Offset = frMsg.Offset
-// 		partialLayerSrc.Meta.LimitRate = frMsg.Rate
-
-// 		// This happens only if the node should receive a layer from its client.
-// 		// For implementation wise, directly load it
-// 	case ClientLayer:
-// 		go func() {
-// 			data := *layerSrc.InmemData
-// 			partial := data[frMsg.Offset : frMsg.Offset+frMsg.DataSize]
-
-// 			const BucketSize = 256 * 1024
-// 			limiter := rate.NewLimiter(rate.Limit(frMsg.Rate), BucketSize)
-// 			buf := make(LayerData, len(partial))
-// 			pos := 0
-// 			for pos < len(partial) {
-// 				n := min(len(partial)-pos, limiter.Burst())
-// 				limiter.WaitN(context.Background(), n)
-// 				copy(buf[pos:], partial[pos:pos+n])
-// 				pos += n
-// 			}
-
-// 			partialLayerSrc := LayerSrc{
-// 				InmemData: &buf,
-// 				DataSize:  frMsg.DataSize,
-// 				Offset:    frMsg.Offset,
-// 				Meta:      LayerMeta{Location: InmemLayer},
-// 			}
-// 			localMsg := NewLayerMsg(n.GetMyID(), frMsg.LayerID, partialLayerSrc, layerSrc.DataSize)
-// 			n.GetTransport().(*TcpTransport).incomingMsgChan <- localMsg
-// 		}()
-// 		return nil
-
-// 	default:
-// 		log.Error().Msg("unknown location")
-// 	}
-
-// 	layerMsg := NewLayerMsg(n.GetMyID(), frMsg.LayerID, partialLayerSrc, layerSrc.DataSize)
-// 	return n.GetTransport().Send(frMsg.DestID, layerMsg)
-// }
