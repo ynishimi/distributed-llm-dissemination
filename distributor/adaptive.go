@@ -167,8 +167,7 @@ func (leader *AdaptiveLeaderNode) dispatchJobs(minTime int64, selfJobsMap, destJ
 		for _, job := range jobInfos {
 			// fixme: currently only block 0 is requested
 			// todo: use clientReqMsg?
-			frMsg := NewReqMsg(
-				leader.node.GetMyID(), job.LayerID, job.SenderID, 0, job.Rate)
+			frMsg := NewReqMsg(leader.node.GetMyID(), job.LayerID, job.SenderID, 0, job.Rate)
 
 			// this time, jobs are sent to receivers
 			err := leader.GetTransport().Send(destID, frMsg)
@@ -182,12 +181,16 @@ func (leader *AdaptiveLeaderNode) dispatchJobs(minTime int64, selfJobsMap, destJ
 	for destID, jobs := range destJobs {
 		jobMsg := NewJobMsg(leader.node.GetMyID(), jobs)
 
+		log.Info().Uint("destID", uint(destID)).Send()
+
 		// this time, jobs are sent to receivers
 		err := leader.GetTransport().Send(destID, jobMsg)
 		if err != nil {
 			return err
 		}
 	}
+
+	log.Info().Msg("Jobs dispatched")
 
 	return nil
 }
@@ -344,6 +347,9 @@ func (receiver *AdaptiveReceiverNode) handleLayerMsg(layerMsg *layerMsg) {
 
 // receivers request blocks based on the information in jobMsg
 func (receiver *AdaptiveReceiverNode) handleJobMsg(jobMsg *jobMsg) {
+
+	log.Info().Msgf("handleJobMsg: %v", jobMsg)
+
 	receiver.mu.Lock()
 	defer receiver.mu.Unlock()
 
@@ -358,7 +364,7 @@ func (receiver *AdaptiveReceiverNode) handleJobMsg(jobMsg *jobMsg) {
 
 	// activeSenders field should be empty by this time; Fill it with new jobs
 
-	for _, job := range jobMsg.jobs {
+	for _, job := range jobMsg.Jobs {
 		// update layerManagerMap
 		_, ok := receiver.layerManagerMap[job.LayerID]
 		if !ok {
@@ -429,7 +435,7 @@ func sendBlock(n node, layers LayersSrc, mu *sync.RWMutex, reqMsg *reqMsg) error
 	layerSrc := layers[reqMsg.LayerID]
 	mu.RUnlock()
 
-	n.addNode(reqMsg.DestID)
+	n.addNode(reqMsg.SrcID)
 
 	var blockLayerSrc LayerSrc
 	blockLayerSrc = layerSrc

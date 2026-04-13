@@ -123,11 +123,11 @@ func (m *retransmitMsg) String() string {
 // coordinator -> receiver
 type jobMsg struct {
 	SrcID NodeID
-	jobs  []job
+	Jobs  []job
 }
 
 func NewJobMsg(srcID NodeID, jobs []job) *jobMsg {
-	return &jobMsg{srcID, jobs}
+	return &jobMsg{SrcID: srcID, Jobs: jobs}
 }
 
 func (m *jobMsg) Src() string {

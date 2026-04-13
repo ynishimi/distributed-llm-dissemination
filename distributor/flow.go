@@ -62,8 +62,8 @@ func newFlowGraph(assignment Assignment, status status, layers LayersSrc, NodeNe
 	assignmentLayerIDs := make(LayerIDs)
 
 	for _, layerIDs := range assignment {
-		for layerID := range layerIDs {
-			if meta, ok := assignmentLayerIDs[layerID]; !ok {
+		for layerID, meta := range layerIDs {
+			if _, ok := assignmentLayerIDs[layerID]; !ok {
 				assignmentLayerIDs[layerID] = meta
 			}
 		}
@@ -195,28 +195,41 @@ func (g *flowGraph) getJobAssignment() (int64, destJobs) {
 	// log.Debug().Int64("t", t).Msg("minimum t found")
 	g.updateMaxFlow(t)
 
+	log.Debug().Str("adjMatrix", fmt.Sprintln(g.adjMatrix)).Send()
+
 	destJobs := make(destJobs)
 
-	for senderID, layerIDs := range g.status {
-		for layerID, meta := range layerIDs {
-			if _, needed := g.assignmentLayerIDs[layerID]; !needed {
-				continue
-			}
+	log.Debug().Str("assignment", fmt.Sprintln(g.assignment)).Send()
 
-			client := flowNode{kind: kindClient, nodeID: senderID, sourceType: meta.SourceType}
-			layer := flowNode{kind: kindLayer, layerID: layerID}
-			flowSize := g.adjMatrix[g.idx[layer]][g.idx[client]]
-			if flowSize > 0 {
-				rate := flowSize / t
-				destJobs[senderID] = append(destJobs[senderID], job{senderID, layerID, rate, flowSize})
+	for receiverID, layerIDs := range g.assignment {
+		// for senderID, layerIDs := range g.status {
+		for layerID := range layerIDs {
+			for senderID, senderLayers := range g.status {
+				meta, hasLayer := senderLayers[layerID]
+				if !hasLayer {
+					continue
+				}
+
+				client := flowNode{kind: kindClient, nodeID: senderID, sourceType: meta.SourceType}
+				layer := flowNode{kind: kindLayer, layerID: layerID}
+				flowSize := g.adjMatrix[g.idx[layer]][g.idx[client]]
+				if flowSize > 0 {
+					rate := flowSize / t
+
+					newJob := job{senderID, layerID, rate, flowSize}
+					destJobs[receiverID] = append(destJobs[receiverID], newJob)
+					log.Debug().Str("job", newJob.String()).Send()
+				}
 			}
 		}
+		// }
 	}
 
 	log.Info().
 		Int64("ETA(s)", t).
 		Msg("job assignment updated")
 
+	log.Debug().Str("destJobs", fmt.Sprintln(destJobs)).Send()
 	return t, destJobs
 }
 
