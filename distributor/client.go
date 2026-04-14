@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"sync"
+	"time"
 
 	"golang.org/x/time/rate"
 )
@@ -44,8 +45,6 @@ func (c *InmemClient) FetchBlock(blockReq blockReq) LayerSrc {
 }
 
 func (c *InmemClient) blockGetter(n node, layers LayersSrc, mu *sync.RWMutex) {
-	const BucketSize = 1024
-
 	for req := range c.blockReqChan {
 		// return a block with rate limit
 
@@ -65,13 +64,10 @@ func (c *InmemClient) blockGetter(n node, layers LayersSrc, mu *sync.RWMutex) {
 
 		// set limit (but doesn't actually copy data, as layers are stored in the sender)
 
-		limiter := rate.NewLimiter(rate.Limit(fullLayerSrc.Meta.LimitRate), BucketSize)
-
-		pos := 0
-		for pos < len(blockData) {
-			n := min(len(blockData)-pos, limiter.Burst())
-			limiter.WaitN(context.Background(), n)
-			pos += n
+		limiter := rate.NewLimiter(rate.Limit(fullLayerSrc.Meta.LimitRate), BlockSize)
+		limiter.ReserveN(time.Now(), BlockSize)
+		if err := limiter.WaitN(context.Background(), BlockSize); err != nil {
+			return
 		}
 
 		req.respCh <- blockLayerSrc

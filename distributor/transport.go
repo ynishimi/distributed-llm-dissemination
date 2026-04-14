@@ -272,7 +272,7 @@ func (t *TcpTransport) Send(destID NodeID, message Message) error {
 		return fmt.Errorf("addr of %d does not exist", destID)
 	}
 
-	// for layerMsg/blockMsg, creates a new connection (to make use of parallelism)
+	// for layerMsg, creates a new connection (large one-shot transfer)
 	switch m := message.(type) {
 	case *layerMsg:
 		conn, err := net.Dial("tcp", dest)
@@ -282,12 +282,18 @@ func (t *TcpTransport) Send(destID NodeID, message Message) error {
 		defer conn.Close()
 		return t.sendLayerMsg(conn, m, 0, m.Type())
 	case *blockMsg:
-		conn, err := net.Dial("tcp", dest)
+		// reuse persistent connection to avoid per-block TCP handshake overhead
+		pConn, err := t.getOrConnect(dest)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to connect to %v: %w", dest, err)
 		}
-		defer conn.Close()
-		return t.sendLayerMsg(conn, m.layerMsg, m.BlockID, m.Type())
+		if pConn == nil {
+			t.incomingMsgChan <- message
+			return nil
+		}
+		pConn.mu.Lock()
+		defer pConn.mu.Unlock()
+		return t.sendLayerMsg(pConn.conn, m.layerMsg, m.BlockID, m.Type())
 	}
 
 	conn, err := t.getOrConnect(dest)

@@ -1,11 +1,13 @@
 package distributor
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"golang.org/x/time/rate"
 )
 
 const BlockSize = 256 * 1024
@@ -233,7 +235,7 @@ func (lm *LayerManager) getNextAndIncrement() (BlockID, bool) {
 	return cur, true
 }
 
-func (receiver *AdaptiveReceiverNode) markReceived(blockMsg *blockMsg) {
+func (receiver *AdaptiveReceiverNode) handleBlockMsg(blockMsg *blockMsg) {
 	receiver.mu.Lock()
 
 	lm := receiver.layerManagerMap[blockMsg.LayerID]
@@ -282,11 +284,9 @@ func (receiver *AdaptiveReceiverNode) handleIncomingMsg() {
 			case *reqMsg:
 				go receiver.handleReqMsg(v)
 			case *blockMsg:
-				go func() {
-					// mark current block as received
-					receiver.markReceived(v)
+				// mark current block as received
+				go receiver.handleBlockMsg(v)
 
-				}()
 			// start the inference engine
 			case *startupMsg:
 				go receiver.handleStartupMsg(v)
@@ -389,6 +389,7 @@ func (receiver *AdaptiveReceiverNode) handleJobMsg(jobMsg *jobMsg) {
 func (receiver *AdaptiveReceiverNode) requestPipeline(layerID LayerID, senderID NodeID, sender *ActiveSender) {
 	for {
 		// next request is dispatched as soon as inflight chan receive a new value
+		limiter := rate.NewLimiter(rate.Limit(sender.rate), BlockSize)
 		select {
 		case <-sender.stop:
 			return
@@ -409,6 +410,9 @@ func (receiver *AdaptiveReceiverNode) requestPipeline(layerID LayerID, senderID 
 			reqMsg := NewReqMsg(receiver.GetMyID(), layerID, senderID, nextBlockID, sender.rate)
 
 			receiver.mu.Unlock()
+			if err := limiter.WaitN(context.Background(), BlockSize); err != nil {
+				return
+			}
 
 			err := receiver.GetTransport().Send(senderID, reqMsg)
 			if err != nil {
@@ -439,9 +443,20 @@ func sendBlock(n node, client Client, layers LayersSrc, mu *sync.RWMutex, reqMsg
 
 	case ClientLayer:
 
+		// timeStart := time.Now()
 		blockMsg := NewBlockMsg(n.GetMyID(), reqMsg.LayerID, client.FetchBlock(blockReq{reqMsg.LayerID, reqMsg.BlockID, make(chan LayerSrc)}), reqMsg.BlockID)
+		// timeClientLoad := time.Now()
 		err := n.GetTransport().Send(reqMsg.SrcID, blockMsg)
-		return err
+		// timeNetworkSend := time.Now()
+		if err != nil {
+			return err
+		}
+
+		return nil
+
+		// todo: report rates
+		// durClientLoad := timeClientLoad.Sub(timeStart)
+		// durNetworkSend := timeNetworkSend.Sub(timeClientLoad)
 
 	default:
 		return fmt.Errorf("unknown location")
