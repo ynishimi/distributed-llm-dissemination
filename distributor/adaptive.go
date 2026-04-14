@@ -10,7 +10,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const BlockSize = 256 * 1024
+const BlockSize = 1 << 22
 const Pipeline = 5
 
 // AdaptiveLeaderNode implements flow-based adaptive leader node.
@@ -410,13 +410,15 @@ func (receiver *AdaptiveReceiverNode) requestPipeline(layerID LayerID, senderID 
 			reqMsg := NewReqMsg(receiver.GetMyID(), layerID, senderID, nextBlockID, sender.rate)
 
 			receiver.mu.Unlock()
-			if err := limiter.WaitN(context.Background(), BlockSize); err != nil {
-				return
-			}
 
 			err := receiver.GetTransport().Send(senderID, reqMsg)
 			if err != nil {
 				log.Error().Err(err).Send()
+			}
+
+			limiter.ReserveN(time.Now(), BlockSize)
+			if err := limiter.WaitN(context.Background(), BlockSize); err != nil {
+				return
 			}
 		}
 	}
