@@ -12,7 +12,7 @@ import (
 
 const BlockSize = 1 << 22
 const Pipeline = 5
-const reportDur = 5 * time.Second
+const ReportDur = 5 * time.Second
 
 type perf struct {
 	blockCount  int
@@ -36,12 +36,14 @@ type AdaptiveLeaderNode struct {
 	nodeClientBW  map[NodeID]map[SourceType]int64
 	client        Client
 	// start reporting once the receiver gets either reqMsg (as a sender) or blockMsg (as a receiver)
-	reportOnce    sync.Once
-	senderPerf    *senderPerf
-	senderJobsMap map[NodeID][]job
-	reportMsgMap  map[NodeID]*senderReportMsg
-	flowGraph     *flowGraph
-	mu            sync.RWMutex
+	reportOnce           sync.Once
+	senderPerf           *senderPerf
+	senderJobsMap        map[NodeID][]job
+	senderReportMsgMap   map[NodeID]*senderReportMsg
+	receiverReportMsgMap map[NodeID]*receiverReportMsg
+
+	flowGraph *flowGraph
+	mu        sync.RWMutex
 }
 
 func NewAdaptiveLeaderNode(node node, layers LayersSrc, assignment Assignment, nodeNetworkBW map[NodeID]int64) *AdaptiveLeaderNode {
@@ -74,7 +76,7 @@ func NewAdaptiveLeaderNode(node node, layers LayersSrc, assignment Assignment, n
 		}
 	}
 
-	alNode := &AdaptiveLeaderNode{leaderBase, layerDests, networkBW, clientBW, NewInmemClient(node, layers, &leaderBase.mu), sync.Once{}, newSenderPerf(), make(map[NodeID][]job), make(map[NodeID]*senderReportMsg), nil, sync.RWMutex{}}
+	alNode := &AdaptiveLeaderNode{leaderBase, layerDests, networkBW, clientBW, NewInmemClient(node, layers, &leaderBase.mu), sync.Once{}, newSenderPerf(), make(map[NodeID][]job), make(map[NodeID]*senderReportMsg), make(map[NodeID]*receiverReportMsg), nil, sync.RWMutex{}}
 
 	// alNode.sendLayersFn = alNode.sendLayers
 
@@ -83,51 +85,55 @@ func NewAdaptiveLeaderNode(node node, layers LayersSrc, assignment Assignment, n
 	return alNode
 }
 
-func (sender *AdaptiveLeaderNode) handleIncomingMsg() {
+func (leader *AdaptiveLeaderNode) handleIncomingMsg() {
 	go func() {
-		for incomingMsg := range sender.GetTransport().Deliver() {
+		for incomingMsg := range leader.GetTransport().Deliver() {
 			log.Debug().Msgf("incoming msg[%T]: %s", incomingMsg, incomingMsg)
 			switch v := incomingMsg.(type) {
 
 			case *announceMsg:
-				go sender.handleAnnounceMsg(v)
+				go leader.handleAnnounceMsg(v)
 			case *ackMsg:
-				go sender.handleAckMsg(v)
+				go leader.handleAckMsg(v)
 			case *reqMsg:
-				go sender.handleReqMsg(v)
+				go leader.handleReqMsg(v)
 			case *senderReportMsg:
-				go sender.handleReportMsg(v)
+				go leader.handleSenderReportMsg(v)
+			case *receiverReportMsg:
+				go leader.handleReceiverReportMsg(v)
+
+			// start the inference engine
 			case *layerMsg:
-				go sender.handleLayerMsg(v)
+				go leader.handleLayerMsg(v)
 			}
 		}
 	}()
 }
 
-func (sender *AdaptiveLeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
+func (leader *AdaptiveLeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
 
-	sender.mu.Lock()
+	leader.mu.Lock()
 	// checks if the announcement is already received
-	_, ok := sender.status[announceMsg.SrcID]
+	_, ok := leader.status[announceMsg.SrcID]
 
 	if !ok {
 		// initialize the value (map of layers the receiver already has)
-		sender.status[announceMsg.SrcID] = announceMsg.LayerIDs
+		leader.status[announceMsg.SrcID] = announceMsg.LayerIDs
 		// add the receiver as neighbor
-		sender.node.addNode(announceMsg.SrcID)
+		leader.node.addNode(announceMsg.SrcID)
 
 		// update nodeClientBW for the new node
-		sender.nodeClientBW[announceMsg.SrcID] = make(map[SourceType]int64)
+		leader.nodeClientBW[announceMsg.SrcID] = make(map[SourceType]int64)
 		for _, meta := range announceMsg.LayerIDs {
-			sender.nodeClientBW[announceMsg.SrcID][meta.SourceType] = meta.LimitRate
+			leader.nodeClientBW[announceMsg.SrcID][meta.SourceType] = meta.LimitRate
 		}
 	}
-	sender.mu.Unlock()
+	leader.mu.Unlock()
 
-	sender.mu.RLock()
-	a := sender.assignment
-	s := sender.status
-	sender.mu.RUnlock()
+	leader.mu.RLock()
+	a := leader.assignment
+	s := leader.status
+	leader.mu.RUnlock()
 	// checks if all nodes in the assignment are connected by comparing the keys of assignment and status
 	for nodeID := range a {
 		_, ok := s[nodeID]
@@ -137,29 +143,29 @@ func (sender *AdaptiveLeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
 	}
 
 	// start sending layers
-	sender.startDistributionChan <- a
+	leader.startDistributionChan <- a
 	log.Info().Msg("timer start")
-	_, selfJobsMap, jobsMap := sender.assignJobs()
+	_, selfJobsMap, jobsMap := leader.assignJobs()
 
-	sender.mu.Lock()
+	leader.mu.Lock()
 	for _, jobs := range jobsMap {
 		for _, job := range jobs {
-			sender.senderJobsMap[job.SenderID] = append(sender.senderJobsMap[job.SenderID], job)
+			leader.senderJobsMap[job.SenderID] = append(leader.senderJobsMap[job.SenderID], job)
 		}
 	}
-	sender.mu.Unlock()
+	leader.mu.Unlock()
 
-	err := sender.dispatchJobs(selfJobsMap, jobsMap)
+	err := leader.dispatchJobs(selfJobsMap, jobsMap)
 	if err != nil {
 		log.Error().Err(err).Send()
 	}
 }
 
-func (sender *AdaptiveLeaderNode) handleReqMsg(reqMsg *reqMsg) {
-	sender.reportOnce.Do(func() {
-		go sender.senderReportLoop()
+func (leader *AdaptiveLeaderNode) handleReqMsg(reqMsg *reqMsg) {
+	leader.reportOnce.Do(func() {
+		go leader.senderReportLoop()
 	})
-	err := sendBlock(sender.node, sender.client, sender.layers, sender.senderPerf, &sender.mu, reqMsg)
+	err := sendBlock(leader.node, leader.client, leader.layers, leader.senderPerf, &leader.mu, reqMsg)
 
 	if err != nil {
 		log.Error().Err(err).Send()
@@ -167,84 +173,137 @@ func (sender *AdaptiveLeaderNode) handleReqMsg(reqMsg *reqMsg) {
 }
 
 // todo: integrate duplicated code
-func (sender *AdaptiveLeaderNode) senderReportLoop() {
-	c := time.Tick(reportDur)
+func (leader *AdaptiveLeaderNode) senderReportLoop() {
+	c := time.Tick(ReportDur)
 	counter := 0
 
 	// report client/network rate
 	// count numbers of blocks and elapsed time
 	for range c {
-		sender.mu.RLock()
+		leader.mu.RLock()
 
-		cliPerf := sender.senderPerf.clientPerf
-		netPerf := sender.senderPerf.networkPerf
+		cliPerf := leader.senderPerf.clientPerf
+		netPerf := leader.senderPerf.networkPerf
 
 		cliRate := make(map[SourceType]int64)
 
 		for sourceType, perf := range cliPerf {
-			cliRate[sourceType] = int64(perf.blockCount*BlockSize) / int64(perf.elapsedTime)
+			cliRate[sourceType] = int64(perf.blockCount*BlockSize) * int64(time.Second) / int64(perf.elapsedTime)
 		}
 
-		netRate := int64(netPerf.blockCount*BlockSize) / int64(netPerf.elapsedTime)
-		sender.mu.RUnlock()
+		netRate := int64(netPerf.blockCount*BlockSize) * int64(time.Second) / int64(netPerf.elapsedTime)
+		leader.mu.RUnlock()
 
 		counter++
 
-		senderRepoMsg := NewSenderReportMsg(sender.GetMyID(), cliRate, netRate, counter)
+		senderRepoMsg := NewSenderReportMsg(leader.GetMyID(), cliRate, netRate, counter)
 
 		log.Debug().Str("msg", fmt.Sprintln(senderRepoMsg)).Msg("senderRepoMsg sent")
 
-		err := sender.GetTransport().Send(sender.getLeader(), senderRepoMsg)
+		err := leader.GetTransport().Send(leader.getLeader(), senderRepoMsg)
 		if err != nil {
 			log.Error().Err(err).Send()
 		}
 	}
 }
 
-func (sender *AdaptiveLeaderNode) handleReportMsg(repoMsg *senderReportMsg) error {
+func (leader *AdaptiveLeaderNode) handleSenderReportMsg(repoMsg *senderReportMsg) error {
 
 	// collect reports
-	sender.mu.Lock()
-	sender.reportMsgMap[repoMsg.SrcID] = repoMsg
+	leader.mu.Lock()
+	leader.senderReportMsgMap[repoMsg.SrcID] = repoMsg
 
-	if !sender.reportCollected() {
-		sender.mu.Unlock()
+	if !leader.reportCollected() {
+		leader.mu.Unlock()
 		return nil
 
 	} else {
-		// todo: update remaining data size
-
-		// update sender's client bw
-		sender.flowGraph.nodeClientBW[repoMsg.SrcID] = repoMsg.clientRate
-
-		// update sender's network bw
-		sender.flowGraph.nodeNetworkBW[repoMsg.SrcID] = repoMsg.networkRate
-
-		_, updatedJobsMap := sender.flowGraph.getJobAssignment()
-
-		// reset current map
-		sender.senderJobsMap = make(map[NodeID][]job)
-		sender.reportMsgMap = make(map[NodeID]*senderReportMsg)
-
-		for _, jobs := range updatedJobsMap {
-			for _, job := range jobs {
-				sender.senderJobsMap[job.SenderID] = append(sender.senderJobsMap[job.SenderID], job)
-			}
-		}
-		sender.mu.Unlock()
-
-		return sender.dispatchJobs(make(destJobsMap), updatedJobsMap)
+		return leader.jobsReassignment()
 	}
 }
 
+func (leader *AdaptiveLeaderNode) handleReceiverReportMsg(repoMsg *receiverReportMsg) error {
+
+	// collect reports
+	leader.mu.Lock()
+	leader.receiverReportMsgMap[repoMsg.SrcID] = repoMsg
+
+	if !leader.reportCollected() {
+		leader.mu.Unlock()
+		return nil
+
+	} else {
+		return leader.jobsReassignment()
+	}
+}
+
+func (leader *AdaptiveLeaderNode) jobsReassignment() error {
+	leader.mu.Lock()
+
+	for senderID, repoMsg := range leader.senderReportMsgMap {
+		// update sender's network bw
+		leader.flowGraph.nodeNetworkBW[senderID] = repoMsg.networkRate
+
+		// update sender's client bw
+		for sourceType, rate := range repoMsg.clientRate {
+			leader.flowGraph.nodeClientBW[senderID][sourceType] = rate
+		}
+	}
+
+	for _, repoMsg := range leader.receiverReportMsgMap {
+		// todo: update receiver's network bw
+		// leader.flowGraph.nodeNetworkBW[receiverID] = repoMsg.networkRate
+
+		// update remaining data size
+		for layerID, size := range repoMsg.remainingDataSize {
+			layerSrc, ok := leader.layers[layerID]
+			if !ok {
+				log.Warn().Uint("layerID", uint(layerID)).Msg("layer not found")
+				continue
+			}
+			layerSrc.DataSize = size
+			leader.layers[layerID] = layerSrc
+		}
+	}
+
+	_, updatedJobsMap := leader.flowGraph.getJobAssignment()
+
+	// reset current map
+	leader.senderJobsMap = make(map[NodeID][]job)
+	leader.senderReportMsgMap = make(map[NodeID]*senderReportMsg)
+
+	for _, jobs := range updatedJobsMap {
+		for _, job := range jobs {
+			leader.senderJobsMap[job.SenderID] = append(leader.senderJobsMap[job.SenderID], job)
+		}
+	}
+
+	leader.mu.Unlock()
+
+	return leader.dispatchJobs(make(destJobsMap), updatedJobsMap)
+}
+
 // judges if reportMsgs are collected from all senders
-func (sender *AdaptiveLeaderNode) reportCollected() bool {
-	if len(sender.reportMsgMap) < len(sender.senderJobsMap) {
+func (leader *AdaptiveLeaderNode) reportCollected() bool {
+	// sender
+	if len(leader.senderReportMsgMap) < len(leader.senderJobsMap) {
 		return false
 	}
 
-	for senderID := range sender.senderJobsMap {
-		_, ok := sender.reportMsgMap[senderID]
+	for senderID := range leader.senderJobsMap {
+		_, ok := leader.senderReportMsgMap[senderID]
+		if !ok {
+			return false
+		}
+	}
+
+	// receiver
+	if len(leader.receiverReportMsgMap) < len(leader.assignment) {
+		return false
+	}
+
+	for receiverID := range leader.assignment {
+		_, ok := leader.receiverReportMsgMap[receiverID]
 		if !ok {
 			return false
 		}
@@ -253,16 +312,16 @@ func (sender *AdaptiveLeaderNode) reportCollected() bool {
 	return true
 }
 
-func (sender *AdaptiveLeaderNode) assignJobs() (t int64, selfJobsMap, jobsMap destJobsMap) {
+func (leader *AdaptiveLeaderNode) assignJobs() (t int64, selfJobsMap, jobsMap destJobsMap) {
 	// divide jobs into self-assignment and others
 	selfJobsMap = make(destJobsMap)
 	modifiedAssignment := make(Assignment)
 
-	for destID, layerIDs := range sender.assignment {
+	for destID, layerIDs := range leader.assignment {
 		for layerID, meta := range layerIDs {
 			// if the destination has the layer in its client, directly send the layer from the client to the node
-			if _, ok := sender.status[destID][layerID]; ok {
-				selfJobsMap[destID] = append(selfJobsMap[destID], job{destID, layerID, meta.LimitRate, sender.layers[layerID].DataSize})
+			if _, ok := leader.status[destID][layerID]; ok {
+				selfJobsMap[destID] = append(selfJobsMap[destID], job{destID, layerID, meta.LimitRate, leader.layers[layerID].DataSize})
 			} else {
 				if _, ok := modifiedAssignment[destID]; !ok {
 					modifiedAssignment[destID] = make(LayerIDs)
@@ -279,8 +338,8 @@ func (sender *AdaptiveLeaderNode) assignJobs() (t int64, selfJobsMap, jobsMap de
 	}
 
 	t0 := time.Now()
-	sender.flowGraph = newFlowGraph(modifiedAssignment, sender.status, sender.layers, sender.nodeNetworkBW, sender.nodeClientBW)
-	t, jobsMap = sender.flowGraph.getJobAssignment()
+	leader.flowGraph = newFlowGraph(modifiedAssignment, leader.status, leader.layers, leader.nodeNetworkBW, leader.nodeClientBW)
+	t, jobsMap = leader.flowGraph.getJobAssignment()
 
 	t1 := time.Since(t0)
 
@@ -290,17 +349,17 @@ func (sender *AdaptiveLeaderNode) assignJobs() (t int64, selfJobsMap, jobsMap de
 }
 
 // Jobs are assigned to receivers
-func (sender *AdaptiveLeaderNode) dispatchJobs(selfJobsMap, destJobs destJobsMap) error {
+func (leader *AdaptiveLeaderNode) dispatchJobs(selfJobsMap, destJobs destJobsMap) error {
 	// self-assignment
 	for destID, jobInfos := range selfJobsMap {
 		for _, job := range jobInfos {
 			// fixme: currently only block 0 is requested
 			// todo: use clientReqMsg?
 			frMsg := NewReqMsg(
-				sender.node.GetMyID(), job.LayerID, job.SenderID, 0, job.Rate)
+				leader.node.GetMyID(), job.LayerID, job.SenderID, 0, job.Rate)
 
 			// this time, jobs are sent to receivers
-			err := sender.GetTransport().Send(destID, frMsg)
+			err := leader.GetTransport().Send(destID, frMsg)
 			if err != nil {
 				return err
 			}
@@ -309,10 +368,10 @@ func (sender *AdaptiveLeaderNode) dispatchJobs(selfJobsMap, destJobs destJobsMap
 
 	// for each sender, assign jobs from jobs slice
 	for destID, jobs := range destJobs {
-		jobMsg := NewJobMsg(sender.node.GetMyID(), jobs)
+		jobMsg := NewJobMsg(leader.node.GetMyID(), jobs)
 
 		// this time, jobs are sent to receivers
-		err := sender.GetTransport().Send(destID, jobMsg)
+		err := leader.GetTransport().Send(destID, jobMsg)
 		if err != nil {
 			return err
 		}
@@ -365,6 +424,9 @@ func (lm *LayerManager) getNextAndIncrement() (BlockID, bool) {
 }
 
 func (receiver *AdaptiveReceiverNode) handleBlockMsg(blockMsg *blockMsg) {
+	receiver.reportOnce.Do(func() {
+		go receiver.receiverReportLoop()
+	})
 	receiver.mu.Lock()
 
 	lm := receiver.layerManagerMap[blockMsg.LayerID]
@@ -565,7 +627,7 @@ func (receiver *AdaptiveReceiverNode) handleReqMsg(reqMsg *reqMsg) {
 }
 
 func (receiver *AdaptiveReceiverNode) senderReportLoop() {
-	c := time.Tick(reportDur)
+	c := time.Tick(ReportDur)
 	counter := 0
 
 	// report client/network rate
@@ -579,15 +641,51 @@ func (receiver *AdaptiveReceiverNode) senderReportLoop() {
 		cliRate := make(map[SourceType]int64)
 
 		for sourceType, perf := range cliPerf {
-			cliRate[sourceType] = int64(perf.blockCount*BlockSize) / int64(perf.elapsedTime)
+			cliRate[sourceType] = int64(perf.blockCount*BlockSize) * int64(time.Second) / int64(perf.elapsedTime)
 		}
 
-		netRate := int64(netPerf.blockCount*BlockSize) / int64(netPerf.elapsedTime)
+		netRate := int64(netPerf.blockCount*BlockSize) * int64(time.Second) / int64(netPerf.elapsedTime)
 		receiver.mu.RUnlock()
 
 		counter++
 
 		senderRepoMsg := NewSenderReportMsg(receiver.GetMyID(), cliRate, netRate, counter)
+
+		log.Debug().Str("msg", fmt.Sprintln(senderRepoMsg)).Msg("senderRepoMsg sent")
+
+		err := receiver.GetTransport().Send(receiver.getLeader(), senderRepoMsg)
+		if err != nil {
+			log.Error().Err(err).Send()
+		}
+	}
+}
+
+func (receiver *AdaptiveReceiverNode) receiverReportLoop() {
+	c := time.Tick(ReportDur)
+	counter := 0
+
+	// report network rate & amount of data remaining to be collected
+	// count numbers of blocks and elapsed time
+	for range c {
+		receiver.mu.RLock()
+
+		// todo: measure elapsed time
+		// netPerf := receiver.senderPerf.networkPerf
+		// netRate := int64(netPerf.blockCount*BlockSize) * int64(time.Second) / int64(netPerf.elapsedTime)
+		netRate := int64(0)
+
+		// remaining data size
+		remainingDataSize := make(map[LayerID]int64)
+
+		for layerID, lm := range receiver.layerManagerMap {
+			remainingDataSize[layerID] = int64((int(lm.TotalBlockNum) - len(lm.ReceivedBlocks)) * BlockSize)
+		}
+
+		receiver.mu.RUnlock()
+
+		counter++
+
+		senderRepoMsg := NewReceiverReportMsg(receiver.GetMyID(), netRate, remainingDataSize, counter)
 
 		log.Debug().Str("msg", fmt.Sprintln(senderRepoMsg)).Msg("senderRepoMsg sent")
 
@@ -623,7 +721,6 @@ func sendBlock(n node, client Client, layers LayersSrc, senderPerf *senderPerf, 
 			return err
 		}
 
-		// todo: report rates
 		durClientLoad := timeClientLoad.Sub(timeStart)
 		durNetworkSend := timeNetworkSend.Sub(timeClientLoad)
 
