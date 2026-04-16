@@ -43,7 +43,7 @@ func (job *job) String() string {
 }
 
 // key: dest, val: list of jobs
-type destJobs map[NodeID][]job
+type destJobsMap map[NodeID][]job
 
 type flowGraph struct {
 	adjMatrix          [][]int64
@@ -51,13 +51,14 @@ type flowGraph struct {
 	status             status
 	layers             LayersSrc
 	nodeNetworkBW      map[NodeID]int64
+	nodeClientBW       map[NodeID]map[SourceType]int64
 	assignmentLayerIDs LayerIDs
 	idx                map[flowNode]int
 	numVertex          int
 	maxFlow            int64
 }
 
-func newFlowGraph(assignment Assignment, status status, layers LayersSrc, NodeNetworkBW map[NodeID]int64) *flowGraph {
+func newFlowGraph(assignment Assignment, status status, layers LayersSrc, NodeNetworkBW map[NodeID]int64, nodeClientBW map[NodeID]map[SourceType]int64) *flowGraph {
 	// counts num of assignmentLayerIDs across the assignment
 	assignmentLayerIDs := make(LayerIDs)
 
@@ -139,6 +140,7 @@ func newFlowGraph(assignment Assignment, status status, layers LayersSrc, NodeNe
 		status:             status,
 		layers:             layers,
 		nodeNetworkBW:      NodeNetworkBW,
+		nodeClientBW:       nodeClientBW,
 		assignmentLayerIDs: assignmentLayerIDs,
 		idx:                idx,
 		numVertex:          numVertex,
@@ -148,7 +150,7 @@ func newFlowGraph(assignment Assignment, status status, layers LayersSrc, NodeNe
 	return &g
 }
 
-func (g *flowGraph) getJobAssignment() (int64, destJobs) {
+func (g *flowGraph) getJobAssignment() (int64, destJobsMap) {
 	requiredFlow := int64(0)
 
 	log.Info().Msg("assigning a job...")
@@ -197,7 +199,7 @@ func (g *flowGraph) getJobAssignment() (int64, destJobs) {
 
 	log.Debug().Str("adjMatrix", fmt.Sprintln(g.adjMatrix)).Send()
 
-	destJobs := make(destJobs)
+	destJobs := make(destJobsMap)
 
 	log.Debug().Str("assignment", fmt.Sprintln(g.assignment)).Send()
 
@@ -261,8 +263,8 @@ func (g *flowGraph) buildEdgeCapacity(time int64) {
 
 			client := flowNode{kind: kindClient, nodeID: nodeID, sourceType: meta.SourceType}
 			layer := flowNode{kind: kindLayer, layerID: layerID}
-
-			g.addEdge(g.idx[sender], g.idx[client], meta.LimitRate*time)
+			limitRate := g.getNodeClientBW(nodeID, meta.SourceType)
+			g.addEdge(g.idx[sender], g.idx[client], limitRate*time)
 			// One layer can be distributed to multiple receivers; do not cap by single layer size
 			g.addEdge(g.idx[client], g.idx[layer], math.MaxInt64)
 		}
@@ -286,6 +288,10 @@ func (g *flowGraph) buildEdgeCapacity(time int64) {
 
 func (g *flowGraph) getNodeNetworkBW(nodeID NodeID) int64 {
 	return g.nodeNetworkBW[nodeID]
+}
+
+func (g *flowGraph) getNodeClientBW(nodeID NodeID, sourceType SourceType) int64 {
+	return g.nodeClientBW[nodeID][sourceType]
 }
 
 func (g *flowGraph) addEdge(src, dest int, capacity int64) {

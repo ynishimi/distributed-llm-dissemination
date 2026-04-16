@@ -9,7 +9,7 @@ type Message interface {
 	Src() string
 	Type() MsgType
 	// Payload() []byte
-	String() string
+	// String() string
 }
 
 // MsgType is a enum for indicating the type of the message.
@@ -22,7 +22,7 @@ const (
 	MsgTypeRetransmit
 	MsgTypeReq
 	MsgTypeJob
-	MsgTypeProgressReport
+	MsgTypeSenderReport
 	MsgTypeClientReq
 	MsgTypeStartup
 	MsgTypeSimple
@@ -175,37 +175,49 @@ func (m *reqMsg) String() string {
 	return fmt.Sprintf("from %v: layer %v, to %v, block: %d, rate: %d", m.SrcID, m.LayerID, m.DestID, m.BlockID, m.Rate)
 }
 
-// progressReportMsg
-type progressReportMsg struct {
-	SrcID NodeID
-	// LayerID  LayerID
-	// DestID   NodeID
-	// DataSize int64
-	// Offset   int64
-	// Rate     int64
+// senderReportMsg
+type senderReportMsg struct {
+	SrcID       NodeID
+	clientRate  map[SourceType]int64
+	networkRate int64
+	reportCount int
 }
 
-func NewProgressReportMsg(src NodeID) *progressReportMsg {
-	return &progressReportMsg{
-		SrcID: src,
-		// LayerID:  layerID,
-		// DestID:   destID,
-		// DataSize: dataSize,
-		// Offset:   offset,
-		// Rate:     rate,
-	}
+func NewSenderReportMsg(srcID NodeID, clientRate map[SourceType]int64, networkRate int64, reportCount int) *senderReportMsg {
+	return &senderReportMsg{srcID, clientRate, networkRate, reportCount}
 }
 
-func (m *progressReportMsg) Src() string {
+func (m *senderReportMsg) Src() string {
 	return fmt.Sprint(m.SrcID)
 }
 
-func (m *progressReportMsg) Type() MsgType {
-	return MsgTypeProgressReport
+func (m *senderReportMsg) Type() MsgType {
+	return MsgTypeSenderReport
 }
 
-func (m *progressReportMsg) String() string {
-	return fmt.Sprintf("")
+func (m *senderReportMsg) String() string {
+	return fmt.Sprintf("src:%v, clRate:%v, netRate:%v, reportCount:%v", m.SrcID, m.clientRate, m.networkRate, m.reportCount)
+}
+
+// receiverReportMsg
+type receiverReportMsg struct {
+	SrcID             NodeID
+	networkRate       int64
+	remainingDataSize map[LayerID]int64
+	reportCount       int
+}
+
+// todo
+func NewReceiverReportMsg(srcID NodeID, networkRate int64, remainingDataSize map[LayerID]int64, reportCount int) *receiverReportMsg {
+	return &receiverReportMsg{srcID, networkRate, remainingDataSize, reportCount}
+}
+
+func (m *receiverReportMsg) Src() string {
+	return fmt.Sprint(m.SrcID)
+}
+
+func (m *receiverReportMsg) Type() MsgType {
+	return MsgTypeSenderReport
 }
 
 // layerMsg
@@ -374,8 +386,8 @@ func decodeMsg(m TransportMsg) (Message, error) {
 		return unmarshalRawMsg[*reqMsg](m.Payload)
 	case MsgTypeJob:
 		return unmarshalRawMsg[*jobMsg](m.Payload)
-	case MsgTypeProgressReport:
-		return unmarshalRawMsg[*progressReportMsg](m.Payload)
+	case MsgTypeSenderReport:
+		return unmarshalRawMsg[*senderReportMsg](m.Payload)
 	case MsgTypeClientReq:
 		return unmarshalRawMsg[*clientReqMsg](m.Payload)
 	case MsgTypeStartup:
