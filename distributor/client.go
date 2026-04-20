@@ -4,13 +4,14 @@ import (
 	"context"
 	"math"
 	"sync"
+	"time"
 
 	"golang.org/x/time/rate"
 )
 
 type Client interface {
 	// FetchBlock returns a block upon a request.
-	FetchBlock(blockReq blockReq) LayerSrc
+	FetchBlock(blockReq blockReq) (LayerSrc, time.Duration)
 }
 
 type blockReq struct {
@@ -42,10 +43,11 @@ func NewInmemClient(n node, layers LayersSrc, mu *sync.RWMutex, limitersMap Limi
 }
 
 // FetchBlock returns a reader of a block
-func (c *InmemClient) FetchBlock(blockReq blockReq) LayerSrc {
-	c.blockReqChan <- blockReq
-
-	return <-blockReq.respCh
+func (c *InmemClient) FetchBlock(req blockReq) (LayerSrc, time.Duration) {
+	c.blockReqChan <- req
+	t0 := time.Now()
+	ls := <-req.respCh
+	return ls, time.Since(t0)
 }
 
 func (c *InmemClient) blockGetter(n node, layers LayersSrc, mu *sync.RWMutex) {

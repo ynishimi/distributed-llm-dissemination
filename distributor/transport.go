@@ -196,7 +196,7 @@ func (t *TcpTransport) handleIncomingMsg(conn net.Conn) {
 			pDestConn.mu.Unlock()
 
 		} else {
-			log.Debug().Msg("no pipe found")
+			// log.Debug().Msg("no pipe found")
 			// then loads layer
 
 			buf = make(LayerData, temp.LayerSize)
@@ -239,7 +239,7 @@ func (t *TcpTransport) getOrConnect(destAddr string) (*protectedConn, error) {
 	t.mu.RUnlock()
 
 	if ok && curPConn != nil {
-		log.Debug().Str("addr", destAddr).Msg("conn already established")
+		// log.Debug().Str("addr", destAddr).Msg("conn already established")
 		return curPConn, nil
 	}
 
@@ -464,7 +464,7 @@ func (t *TcpTransport) getAndUnregisterPipe(layerID LayerID) (*protectedConn, bo
 
 	destID, ok := t.pipes[layerID]
 	if !ok {
-		log.Debug().Msgf("pipe not exist for layer %v", layerID)
+		// log.Debug().Msgf("pipe not exist for layer %v", layerID)
 		t.mu.Unlock()
 		return nil, false
 	}

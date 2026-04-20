@@ -714,17 +714,16 @@ func sendBlock(n node, client Client, layers LayersSrc, senderPerf *senderPerf, 
 		return fmt.Errorf("not implemented")
 
 	case ClientLayer:
-		timeStart := time.Now()
-		block := client.FetchBlock(blockReq{reqMsg.LayerID, reqMsg.BlockID, make(chan LayerSrc)})
+		block, durClientLoad := client.FetchBlock(blockReq{reqMsg.LayerID, reqMsg.BlockID, make(chan LayerSrc)})
 		blockMsg := NewBlockMsg(n.GetMyID(), reqMsg.LayerID, block, reqMsg.BlockID)
 		timeClientLoad := time.Now()
+
 		err := n.GetTransport().Send(reqMsg.SrcID, blockMsg)
 		timeNetworkSend := time.Now()
 		if err != nil {
 			return err
 		}
 
-		durClientLoad := timeClientLoad.Sub(timeStart)
 		durNetworkSend := timeNetworkSend.Sub(timeClientLoad)
 
 		mu.Lock()
