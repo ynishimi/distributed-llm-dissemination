@@ -8,6 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/time/rate"
 
 	"github.com/ynishimi/distributed-llm-dissemination/distributor"
 )
@@ -122,6 +123,11 @@ func main() {
 	// 	addrRegistry[distributor.ClientID] = myClientConf.Addr
 	// }
 
+	limitersMap := make(distributor.LimitersMap)
+	for sourceType, speed := range myNodeConf.Sources {
+		limitersMap[sourceType] = rate.NewLimiter(rate.Limit(speed), distributor.BlockSize)
+	}
+
 	// create transport
 	t, err := distributor.NewTcpTransport(myNodeConf.Addr, numPeers, addrRegistry, false)
 	if err != nil {
@@ -136,13 +142,13 @@ func main() {
 	}
 
 	if myNodeConf.IsLeader {
-		err = RunLeader(myID, n, t, layers, conf.Assignment, nodeNetworkBW)
+		err = RunLeader(myID, n, t, layers, conf.Assignment, nodeNetworkBW, limitersMap)
 		if err != nil {
 			log.Error().Err(err).Msg("leader failed")
 		}
 	} else {
 		layerManagers := CreateLayerManagers(conf.Assignment[myID], conf.Layers)
-		err = RunReceiver(myID, n, leaderNodeConf.ID, t, layers, layerManagers)
+		err = RunReceiver(myID, n, leaderNodeConf.ID, t, layers, layerManagers, limitersMap)
 		if err != nil {
 			log.Error().Err(err).Msg("receiver failed")
 		}
@@ -150,7 +156,7 @@ func main() {
 
 }
 
-func RunLeader(myID distributor.NodeID, n *distributor.N, t distributor.Transport, layers distributor.LayersSrc, assignment distributor.Assignment, nodeNetworkBW map[distributor.NodeID]int64) error {
+func RunLeader(myID distributor.NodeID, n *distributor.N, t distributor.Transport, layers distributor.LayersSrc, assignment distributor.Assignment, nodeNetworkBW map[distributor.NodeID]int64, limitersMap distributor.LimitersMap) error {
 	fmt.Printf("launching leader...\n[addr: %s, id: %v, filename: %s]\n", n.GetTransport().GetAddress(), myID, *fileName)
 
 	var leaderNode distributor.Leader
@@ -164,7 +170,7 @@ func RunLeader(myID distributor.NodeID, n *distributor.N, t distributor.Transpor
 	// case 3:
 	// leaderNode = distributor.NewFlowRetransmitLeaderNode(n, layers, assignment, nodeNetworkBW)
 	// case 4:
-	leaderNode = distributor.NewAdaptiveLeaderNode(n, layers, assignment, nodeNetworkBW)
+	leaderNode = distributor.NewAdaptiveLeaderNode(n, layers, assignment, nodeNetworkBW, limitersMap)
 
 	// default:
 	// 	return fmt.Errorf("unknown mode")
@@ -186,7 +192,7 @@ func executeLeader(leader distributor.Leader) time.Duration {
 	return t1
 }
 
-func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor.NodeID, t distributor.Transport, layers distributor.LayersSrc, layerManagers map[distributor.LayerID]*distributor.LayerManager) error {
+func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor.NodeID, t distributor.Transport, layers distributor.LayersSrc, layerManagers map[distributor.LayerID]*distributor.LayerManager, limitersMap distributor.LimitersMap) error {
 	fmt.Printf("launching receiver...\n[addr: %s, id: %v, filename: %s]\n", n.GetTransport().GetAddress(), myID, *fileName)
 
 	var receiverNode distributor.Receiver
@@ -198,7 +204,7 @@ func RunReceiver(myID distributor.NodeID, n *distributor.N, leaderID distributor
 	// case 3:
 	// 	receiverNode = distributor.NewFlowRetransmitReceiverNode(n, layers, *storagePath)
 	// case 4:
-	receiverNode = distributor.NewAdaptiveReceiverNode(n, layers, *storagePath, layerManagers)
+	receiverNode = distributor.NewAdaptiveReceiverNode(n, layers, *storagePath, layerManagers, limitersMap)
 
 	// default:
 	// return fmt.Errorf("unknown mode")

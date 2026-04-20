@@ -46,7 +46,7 @@ type AdaptiveLeaderNode struct {
 	mu        sync.RWMutex
 }
 
-func NewAdaptiveLeaderNode(node node, layers LayersSrc, assignment Assignment, nodeNetworkBW map[NodeID]int64) *AdaptiveLeaderNode {
+func NewAdaptiveLeaderNode(node node, layers LayersSrc, assignment Assignment, nodeNetworkBW map[NodeID]int64, limitersMap LimitersMap) *AdaptiveLeaderNode {
 	leaderBase := newLeaderNodeBase(node, layers, assignment)
 
 	// initialize layerDests
@@ -76,7 +76,7 @@ func NewAdaptiveLeaderNode(node node, layers LayersSrc, assignment Assignment, n
 		}
 	}
 
-	alNode := &AdaptiveLeaderNode{leaderBase, layerDests, networkBW, clientBW, NewInmemClient(node, layers, &leaderBase.mu), sync.Once{}, newSenderPerf(), make(map[NodeID][]job), make(map[NodeID]*senderReportMsg), make(map[NodeID]*receiverReportMsg), nil, sync.RWMutex{}}
+	alNode := &AdaptiveLeaderNode{leaderBase, layerDests, networkBW, clientBW, NewInmemClient(node, layers, &leaderBase.mu, limitersMap), sync.Once{}, newSenderPerf(), make(map[NodeID][]job), make(map[NodeID]*senderReportMsg), make(map[NodeID]*receiverReportMsg), nil, sync.RWMutex{}}
 
 	// alNode.sendLayersFn = alNode.sendLayers
 
@@ -244,10 +244,10 @@ func (leader *AdaptiveLeaderNode) jobsReassignment() error {
 
 	for senderID, repoMsg := range leader.senderReportMsgMap {
 		// update sender's network bw
-		leader.flowGraph.nodeNetworkBW[senderID] = repoMsg.networkRate
+		leader.flowGraph.nodeNetworkBW[senderID] = repoMsg.NetworkRate
 
 		// update sender's client bw
-		for sourceType, rate := range repoMsg.clientRate {
+		for sourceType, rate := range repoMsg.ClientRate {
 			leader.flowGraph.nodeClientBW[senderID][sourceType] = rate
 		}
 	}
@@ -257,7 +257,7 @@ func (leader *AdaptiveLeaderNode) jobsReassignment() error {
 		// leader.flowGraph.nodeNetworkBW[receiverID] = repoMsg.networkRate
 
 		// update remaining data size
-		for layerID, size := range repoMsg.remainingDataSize {
+		for layerID, size := range repoMsg.RemainingDataSize {
 			layerSrc, ok := leader.layers[layerID]
 			if !ok {
 				log.Warn().Uint("layerID", uint(layerID)).Msg("layer not found")
@@ -454,13 +454,13 @@ func (receiver *AdaptiveReceiverNode) handleBlockMsg(blockMsg *blockMsg) {
 	}
 }
 
-func NewAdaptiveReceiverNode(node node, layers LayersSrc, storagePath string, layerManagerMap map[LayerID]*LayerManager) *AdaptiveReceiverNode {
+func NewAdaptiveReceiverNode(node node, layers LayersSrc, storagePath string, layerManagerMap map[LayerID]*LayerManager, limitersMap LimitersMap) *AdaptiveReceiverNode {
 	receiverBase := newReceiverNodeBase(node, layers, storagePath)
 
 	arNode := &AdaptiveReceiverNode{
 		receiverBase,
 		layerManagerMap,
-		NewInmemClient(node, layers, &receiverBase.mu),
+		NewInmemClient(node, layers, &receiverBase.mu, limitersMap),
 		newSenderPerf(),
 		sync.Once{}}
 
@@ -584,9 +584,9 @@ func (receiver *AdaptiveReceiverNode) handleJobMsg(jobMsg *jobMsg) {
 }
 
 func (receiver *AdaptiveReceiverNode) requestPipeline(layerID LayerID, senderID NodeID, sender *ActiveSender) {
+	limiter := rate.NewLimiter(rate.Limit(sender.rate), BlockSize)
 	for {
 		// next request is dispatched as soon as inflight chan receive a new value
-		limiter := rate.NewLimiter(rate.Limit(sender.rate), BlockSize)
 		select {
 		case <-sender.stop:
 			return
@@ -613,7 +613,6 @@ func (receiver *AdaptiveReceiverNode) requestPipeline(layerID LayerID, senderID 
 				log.Error().Err(err).Send()
 			}
 
-			limiter.ReserveN(time.Now(), BlockSize)
 			if err := limiter.WaitN(context.Background(), BlockSize); err != nil {
 				return
 			}
@@ -715,10 +714,8 @@ func sendBlock(n node, client Client, layers LayersSrc, senderPerf *senderPerf, 
 		return fmt.Errorf("not implemented")
 
 	case ClientLayer:
-
-		block := client.FetchBlock(blockReq{reqMsg.LayerID, reqMsg.BlockID, make(chan LayerSrc)})
-
 		timeStart := time.Now()
+		block := client.FetchBlock(blockReq{reqMsg.LayerID, reqMsg.BlockID, make(chan LayerSrc)})
 		blockMsg := NewBlockMsg(n.GetMyID(), reqMsg.LayerID, block, reqMsg.BlockID)
 		timeClientLoad := time.Now()
 		err := n.GetTransport().Send(reqMsg.SrcID, blockMsg)

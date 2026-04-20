@@ -4,7 +4,6 @@ import (
 	"context"
 	"math"
 	"sync"
-	"time"
 
 	"golang.org/x/time/rate"
 )
@@ -24,12 +23,17 @@ type blockReq struct {
 type InmemClient struct {
 	// reqCh waits for new requests.
 	blockReqChan chan blockReq
+	// rate limiters for each client.
+	limitersMap map[SourceType]*rate.Limiter
 }
 
+type LimitersMap map[SourceType]*rate.Limiter
+
 // NewInmemClient creates a new InmemClient. This should be called at launch of senders.
-func NewInmemClient(n node, layers LayersSrc, mu *sync.RWMutex) *InmemClient {
+func NewInmemClient(n node, layers LayersSrc, mu *sync.RWMutex, limitersMap LimitersMap) *InmemClient {
 	c := &InmemClient{
 		blockReqChan: make(chan blockReq),
+		limitersMap:  limitersMap,
 	}
 
 	go c.blockGetter(n, layers, mu)
@@ -64,9 +68,7 @@ func (c *InmemClient) blockGetter(n node, layers LayersSrc, mu *sync.RWMutex) {
 
 		// set limit (but doesn't actually copy data, as layers are stored in the sender)
 
-		limiter := rate.NewLimiter(rate.Limit(fullLayerSrc.Meta.LimitRate), BlockSize)
-		limiter.ReserveN(time.Now(), BlockSize)
-		if err := limiter.WaitN(context.Background(), BlockSize); err != nil {
+		if err := c.limitersMap[fullLayerSrc.Meta.SourceType].WaitN(context.Background(), BlockSize); err != nil {
 			return
 		}
 
