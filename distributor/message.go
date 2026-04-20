@@ -179,9 +179,9 @@ func (m *reqMsg) String() string {
 // senderReportMsg
 type senderReportMsg struct {
 	SrcID       NodeID
-	clientRate  map[SourceType]int64
-	networkRate int64
-	reportCount int
+	ClientRate  map[SourceType]int64
+	NetworkRate int64
+	ReportCount int
 }
 
 func NewSenderReportMsg(srcID NodeID, clientRate map[SourceType]int64, networkRate int64, reportCount int) *senderReportMsg {
@@ -197,18 +197,17 @@ func (m *senderReportMsg) Type() MsgType {
 }
 
 func (m *senderReportMsg) String() string {
-	return fmt.Sprintf("src:%v, clRate:%v, netRate:%v, reportCount:%v", m.SrcID, m.clientRate, m.networkRate, m.reportCount)
+	return fmt.Sprintf("src:%v, clRate:%v, netRate:%v, reportCount:%v", m.SrcID, m.ClientRate, m.NetworkRate, m.ReportCount)
 }
 
 // receiverReportMsg
 type receiverReportMsg struct {
 	SrcID             NodeID
-	networkRate       int64
-	remainingDataSize map[LayerID]int64
-	reportCount       int
+	NetworkRate       int64
+	RemainingDataSize map[LayerID]int64
+	ReportCount       int
 }
 
-// todo
 func NewReceiverReportMsg(srcID NodeID, networkRate int64, remainingDataSize map[LayerID]int64, reportCount int) *receiverReportMsg {
 	return &receiverReportMsg{srcID, networkRate, remainingDataSize, reportCount}
 }
