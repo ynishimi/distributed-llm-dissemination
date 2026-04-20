@@ -273,6 +273,7 @@ func (leader *AdaptiveLeaderNode) jobsReassignment() error {
 	// reset current map
 	leader.senderJobsMap = make(map[NodeID][]job)
 	leader.senderReportMsgMap = make(map[NodeID]*senderReportMsg)
+	leader.receiverReportMsgMap = make(map[NodeID]*receiverReportMsg)
 
 	for _, jobs := range updatedJobsMap {
 		for _, job := range jobs {

@@ -210,6 +210,9 @@ type LeaderNode struct {
 	layers     LayersSrc
 	assignment Assignment
 	status     status
+	// keep track of completed delivery
+	completed map[NodeID]map[LayerID]struct{}
+
 	// startDistributionChan notifies the start of distribution.
 	startDistributionChan chan Assignment
 	// fetchChan             map[LayerID]chan LayerSrc
@@ -225,6 +228,7 @@ func newLeaderNodeBase(node node, layers LayersSrc, assignment Assignment) *Lead
 		layers:                layers,
 		assignment:            assignment,
 		status:                make(status, len(assignment)),
+		completed:             make(map[NodeID]map[LayerID]struct{}),
 		startDistributionChan: make(chan Assignment),
 		// fetchChan:             make(map[LayerID]chan LayerSrc),
 		readyChan: make(chan Assignment),
@@ -394,14 +398,16 @@ func (leader *LeaderNode) handleLayerMsg(layerMsg *layerMsg) {
 func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 	leader.mu.Lock()
 
-	curStatus := leader.status[ackMsg.SrcID]
 	// add the layer to current status
-	curStatus[ackMsg.LayerID] = LayerMeta{}
+	if _, ok := leader.completed[ackMsg.SrcID]; !ok {
+		leader.completed[ackMsg.SrcID] = make(map[LayerID]struct{})
+	}
+	leader.completed[ackMsg.SrcID][ackMsg.LayerID] = struct{}{}
 
-	log.Debug().Str("status", fmt.Sprint(leader.status)).Msg("handleAckMsg")
+	log.Debug().Str("status", fmt.Sprint(leader.completed)).Msg("handleAckMsg")
 
 	// checks if the assignment is completed
-	if assignmentSatisfied(leader.assignment, leader.status) {
+	if assignmentSatisfied(leader.assignment, leader.completed) {
 		leader.mu.Unlock()
 		log.Info().Msg("timer stop: startup")
 		leader.sendStartup()
@@ -414,12 +420,16 @@ func (leader *LeaderNode) handleAckMsg(ackMsg *ackMsg) {
 }
 
 // assignmentSatisfied checks if, for each node, to have all the assignmented layers.
-func assignmentSatisfied(a Assignment, s status) bool {
+func assignmentSatisfied(a Assignment, s map[NodeID]map[LayerID]struct{}) bool {
 	for node, layers := range a {
 		for layer := range layers {
-			// checks if the layer exists (in memory, not in disk or client) in the current status
-			meta, ok := s[node][layer]
-			if !ok || meta.Location != InmemLayer {
+			// // checks if the layer exists (in memory, not in disk or client) in the current status
+			// meta, ok := s[node][layer]
+			// if !ok || meta.Location != InmemLayer {
+			// 	return false
+			// }
+			_, ok := s[node][layer]
+			if !ok {
 				return false
 			}
 		}
