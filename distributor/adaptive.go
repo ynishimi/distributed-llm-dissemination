@@ -208,36 +208,38 @@ func (leader *AdaptiveLeaderNode) senderReportLoop() {
 }
 
 func (leader *AdaptiveLeaderNode) handleSenderReportMsg(repoMsg *senderReportMsg) error {
+	log.Debug().Uint("sender", uint(repoMsg.SrcID)).Msg("repoMsg received")
 
 	// collect reports
 	leader.mu.Lock()
 	leader.senderReportMsgMap[repoMsg.SrcID] = repoMsg
+	leader.mu.Unlock()
 
 	if !leader.reportCollected() {
-		leader.mu.Unlock()
 		return nil
-
-	} else {
-		return leader.jobsReassignment()
 	}
+	return leader.jobsReassignment()
+
 }
 
 func (leader *AdaptiveLeaderNode) handleReceiverReportMsg(repoMsg *receiverReportMsg) error {
+	log.Debug().Uint("receiver", uint(repoMsg.SrcID)).Msg("repoMsg received")
 
 	// collect reports
 	leader.mu.Lock()
 	leader.receiverReportMsgMap[repoMsg.SrcID] = repoMsg
+	leader.mu.Unlock()
 
 	if !leader.reportCollected() {
-		leader.mu.Unlock()
 		return nil
-
-	} else {
-		return leader.jobsReassignment()
 	}
+	return leader.jobsReassignment()
 }
 
 func (leader *AdaptiveLeaderNode) jobsReassignment() error {
+
+	log.Info().Msg("re-assigning jobs")
+
 	leader.mu.Lock()
 
 	for senderID, repoMsg := range leader.senderReportMsgMap {
@@ -285,6 +287,9 @@ func (leader *AdaptiveLeaderNode) jobsReassignment() error {
 
 // judges if reportMsgs are collected from all senders
 func (leader *AdaptiveLeaderNode) reportCollected() bool {
+	leader.mu.RLock()
+	defer leader.mu.RUnlock()
+
 	// sender
 	if len(leader.senderReportMsgMap) < len(leader.senderJobsMap) {
 		return false
@@ -661,6 +666,7 @@ func (receiver *AdaptiveReceiverNode) senderReportLoop() {
 }
 
 func (receiver *AdaptiveReceiverNode) receiverReportLoop() {
+
 	c := time.Tick(ReportDur)
 	counter := 0
 
@@ -685,11 +691,11 @@ func (receiver *AdaptiveReceiverNode) receiverReportLoop() {
 
 		counter++
 
-		senderRepoMsg := NewReceiverReportMsg(receiver.GetMyID(), netRate, remainingDataSize, counter)
+		receiverRepoMsg := NewReceiverReportMsg(receiver.GetMyID(), netRate, remainingDataSize, counter)
 
-		log.Debug().Str("msg", fmt.Sprintln(senderRepoMsg)).Msg("senderRepoMsg sent")
+		log.Debug().Str("msg", fmt.Sprintln(receiverRepoMsg)).Msg("receiverRepoMsg sent")
 
-		err := receiver.GetTransport().Send(receiver.getLeader(), senderRepoMsg)
+		err := receiver.GetTransport().Send(receiver.getLeader(), receiverRepoMsg)
 		if err != nil {
 			log.Error().Err(err).Send()
 		}

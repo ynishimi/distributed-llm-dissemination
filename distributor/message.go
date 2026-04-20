@@ -23,6 +23,7 @@ const (
 	MsgTypeReq
 	MsgTypeJob
 	MsgTypeSenderReport
+	MsgTypeReceiverReport
 	MsgTypeClientReq
 	MsgTypeStartup
 	MsgTypeSimple
@@ -217,7 +218,7 @@ func (m *receiverReportMsg) Src() string {
 }
 
 func (m *receiverReportMsg) Type() MsgType {
-	return MsgTypeSenderReport
+	return MsgTypeReceiverReport
 }
 
 // layerMsg
@@ -388,6 +389,8 @@ func decodeMsg(m TransportMsg) (Message, error) {
 		return unmarshalRawMsg[*jobMsg](m.Payload)
 	case MsgTypeSenderReport:
 		return unmarshalRawMsg[*senderReportMsg](m.Payload)
+	case MsgTypeReceiverReport:
+		return unmarshalRawMsg[*receiverReportMsg](m.Payload)
 	case MsgTypeClientReq:
 		return unmarshalRawMsg[*clientReqMsg](m.Payload)
 	case MsgTypeStartup:
