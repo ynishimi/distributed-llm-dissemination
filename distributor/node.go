@@ -568,8 +568,9 @@ func (receiver *ReceiverNode) Announce() error {
 	curLayerIDs := make(LayerIDs, len(receiver.layers))
 	for k, layerSrc := range receiver.layers {
 		curLayerIDs[k] = LayerMeta{
-			Location:  layerSrc.Meta.Location,
-			LimitRate: layerSrc.Meta.LimitRate,
+			Location:   layerSrc.Meta.Location,
+			LimitRate:  layerSrc.Meta.LimitRate,
+			SourceType: layerSrc.Meta.SourceType,
 		}
 
 	}

@@ -99,7 +99,7 @@ func CreateLayers(myConf NodeConf, layerConfMap map[distributor.LayerID]layerCon
 			if currentLayerSize < 0 {
 				currentLayerSize = 0
 			}
-			layers[layerID] = CreateClientLayer(layerID, currentLayerSize, myConf.Sources[sourceType])
+			layers[layerID] = CreateClientLayer(layerID, currentLayerSize, myConf.Sources[sourceType], sourceType)
 		}
 	}
 
@@ -161,12 +161,13 @@ func CreateInmemLayer(layerID distributor.LayerID, layerSize int64) distributor.
 }
 
 // CreateClientLayer creates layers with rate limit.
-func CreateClientLayer(layerID distributor.LayerID, layerSize int64, limitRate int64) distributor.LayerSrc {
+func CreateClientLayer(layerID distributor.LayerID, layerSize int64, limitRate int64, sourceType distributor.SourceType) distributor.LayerSrc {
 	layerSrc := CreateInmemLayer(layerID, layerSize)
 	layerSrc.Meta = distributor.LayerMeta{
 		// the layer is stored in memory of the client
-		Location:  distributor.ClientLayer,
-		LimitRate: limitRate,
+		Location:   distributor.ClientLayer,
+		LimitRate:  limitRate,
+		SourceType: sourceType,
 	}
 
 	log.Debug().Int64("limitRate", limitRate).Send()
