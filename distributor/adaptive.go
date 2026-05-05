@@ -125,7 +125,10 @@ func (leader *AdaptiveLeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
 		// update nodeClientBW for the new node
 		leader.nodeClientBW[announceMsg.SrcID] = make(map[SourceType]int64)
 		for _, meta := range announceMsg.LayerIDs {
-			leader.nodeClientBW[announceMsg.SrcID][meta.SourceType] = meta.LimitRate
+			// leader.nodeClientBW[announceMsg.SrcID][meta.SourceType] = meta.LimitRate
+
+			// initialize nodeClientBW (used for calculating flow graph) with network BW
+			leader.nodeClientBW[announceMsg.SrcID][meta.SourceType] = leader.nodeNetworkBW[announceMsg.SrcID]
 		}
 	}
 	leader.mu.Unlock()
