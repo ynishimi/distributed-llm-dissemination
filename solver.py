@@ -3,21 +3,25 @@ import numpy as np
 
 # problem data
 
+LAYERSIZE = 1.81 * 2**30
+NETWORKBW = 12.5/8 * 10**9
+DISKBW = 200 * 2**30
+
 N = 4
 '''num of nodes'''
 L = 36
 '''num of layers'''
 P = np.array([0.5 for _ in range(N)])
 '''probability of crash'''
-S = np.array([1e9 for _ in range(L)])
+S = np.array([LAYERSIZE for _ in range(L)])
 '''size of layers (= |l|)'''
-C = np.array([1e9 * L / (N - 1) for _ in range(N)]
+C = np.array([LAYERSIZE * L / (N - 1) for _ in range(N)]
              )  # this time, setting the capacity to minimum.
 '''size of disks'''
-B = np.array([1e9 for _ in range(N)])
+B = np.array([NETWORKBW for _ in range(N)])
 '''network bandwidth of nodes'''
 
-D = np.array([1e6 for _ in range(N)])
+D = np.array([DISKBW for _ in range(N)])
 '''rate of disks'''
 
 
@@ -66,7 +70,11 @@ obj = cp.Minimize(P @ t)
 
 # Form and solve problem.
 prob = cp.Problem(obj, constraints)
-prob.solve(solver=cp.HIGHS)  # Returns the optimal value.
+
+prob.solve(solver=cp.HIGHS, canon_backend=cp.SCIPY_CANON_BACKEND)
+
 print("status:", prob.status)
-print("optimal value", prob.value)
-print("optimal var", x.value, t.value)
+print("expected value of downtime[s]", prob.value)
+print("proportion of layers for each node", x.value)
+print("downtime for each node's crash[s]", t.value)
+print("occupied disk space for each node", (x @ S).value)
