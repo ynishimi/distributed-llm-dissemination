@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import cvxpy as cp
 import numpy as np
 
+np.set_printoptions(precision=3)
+
 sns.set_theme()
 sns.set_context("paper")
 
@@ -113,11 +115,12 @@ def calc(disk_size):
 
     prob.solve(solver=cp.HIGHS, canon_backend=cp.SCIPY_CANON_BACKEND)
 
-    print("status:", prob.status)
-    print("expected value of downtime[s]", prob.value)
-    print("proportion of layers for each node", x.value)
+    print(f"result(disk={disk_size/(2**30)}GiB):", prob.status)
+    print(f"expected value of downtime[s]: {prob.value:.3f}")
+    # print("proportion of layers for each node", x.value)
     print("downtime for each node's crash[s]", t.value)
-    print("occupied disk space for each node", (x @ S).value)
+    print(
+        f"occupied disk space for each node[%]: {(x @ S).value/disk_size * 100}")
 
     def plot_assignment(x_val):
         '''creates a heatmap image'''
@@ -136,5 +139,5 @@ def calc(disk_size):
 
 
 # try with different disk size
-for i in range(1, 2):
-    calc(20 * i * 2**30)
+for i in range(5):
+    calc(20 * (i+1) * 2**30)
