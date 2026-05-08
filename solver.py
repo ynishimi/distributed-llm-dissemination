@@ -13,10 +13,10 @@ def calc(disk_size):
 
     # problem data
 
-    LAYERSIZE = 1.81 * 2**30  # 1.81 GiB
+    LAYERSIZE = 1.81  # 1.81 GiB
     # DISKSIZE = 20 * 2**30  # 20 GiB
-    NETWORKBW = 12.5/8 * 10**9  # 12.5 Gbps
-    DISKBW = 200 * 2**20  # 200 MiB
+    NETWORKBW = (12.5/8 * 10**9) / (2**30)  # 12.5 Gbps
+    DISKBW = 200 / (2**10)  # 200 MiB
 
     N = 4
     '''num of nodes'''
@@ -86,18 +86,29 @@ def calc(disk_size):
 
         # missing layers should be sent, but existing layers should not be sent or saved
         for receiver in range(N):
-            for l in ALT_ASSIGNMENTS[crashed_node][receiver]:
+            assigned_layers = ALT_ASSIGNMENTS[crashed_node][receiver]
+            for l in assigned_layers:
                 if l in INIT_ASSIGNMENT[receiver]:
+                    # already has l
                     constraints.append(
                         f[crashed_node]['layer_receiver'][l] == 0)
                     constraints.append(x[receiver, l] == 0)
                 else:
+                    # missing l
                     constraints.append(
                         f[crashed_node]['layer_receiver'][l] == S[l])
 
-        # flow
-        constraints.append(
-            cp.sum(f[crashed_node]['layer_receiver']) == f[crashed_node]['receiver_sink'])
+            layers_to_receive = [
+                l for l in assigned_layers if l not in INIT_ASSIGNMENT[receiver]
+            ]
+            if layers_to_receive:
+                constraints.append(
+                    # flow: each layer is sent to a receiver, based on an alternative assignment
+                    cp.sum(f[crashed_node]['layer_receiver'][layers_to_receive]) == f[crashed_node]['receiver_sink'][receiver])
+            else:
+                constraints.append(
+                    f[crashed_node]['receiver_sink'][receiver] == 0)
+
         # network bw
         constraints.append(f[crashed_node]['receiver_sink']
                            <= cp.multiply(B, t[crashed_node]))
@@ -115,29 +126,32 @@ def calc(disk_size):
 
     prob.solve(solver=cp.HIGHS, canon_backend=cp.SCIPY_CANON_BACKEND)
 
-    print(f"result(disk={disk_size/(2**30)}GiB):", prob.status)
+    print(f"result(disk={disk_size}GiB):", prob.status)
     print(f"expected value of downtime[s]: {prob.value:.3f}")
     # print("proportion of layers for each node", x.value)
     print("downtime for each node's crash[s]", t.value)
-    print(
-        f"occupied disk space for each node[%]: {(x @ S).value/disk_size * 100}")
+    if prob.status == 'optimal':
+        print(
+            f"occupied disk space for each node[%]: {(x @ S).value/disk_size * 100}")
 
-    def plot_assignment(x_val):
-        '''creates a heatmap image'''
+        def plot_assignment(x_val):
+            '''creates a heatmap image'''
 
-        plt.figure(figsize=(16, 4))
-        sns.heatmap(x_val*100, cmap="Blues",
-                    )
-        plt.xlabel("Layer")
-        plt.ylabel("Node")
-        plt.title(f"Backup layer placement(disk={disk_size/(2**30)}GiB)")
-        plt.savefig(f"heatmap_{disk_size/(2**30)}GiB.png", bbox_inches='tight')
-        # plt.show()
-        plt.close('all')
+            plt.figure(figsize=(16, 4))
+            sns.heatmap(x_val*100, cmap="Blues",
+                        )
+            plt.xlabel("Layer")
+            plt.ylabel("Node")
+            plt.title(f"Backup layer placement(disk={disk_size}GiB)")
+            plt.savefig(
+                f"heatmap_{disk_size}GiB.png", bbox_inches='tight')
+            # plt.show()
+            plt.close('all')
 
-    plot_assignment(x.value)
+        plot_assignment(x.value)
 
 
 # try with different disk size
-for i in range(5):
-    calc(20 * (i+1) * 2**30)
+disk_sizes = [i for i in range(15, 60 + 1)]
+for disk_size in disk_sizes:
+    calc(disk_size)

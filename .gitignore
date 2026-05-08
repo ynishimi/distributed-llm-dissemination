@@ -32,6 +32,9 @@ go.work.sum
 # .idea/
 # .vscode/
 
+*.png
+*.gif
+
 bin/
 layers/
 logs/
