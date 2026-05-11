@@ -22,8 +22,27 @@ def calc(disk_size):
     '''num of nodes'''
     L = 36
     '''num of layers'''
-    P = np.array([1/N for _ in range(N)])
-    '''probability of crash'''
+
+    # LAYERSIZE = 10.18
+    # # DISKSIZE = 20  # 20 GiB
+    # NETWORKBW = (12.5/8 * 10**9) / (2**30)  # 12.5 Gbps
+    # DISKBW = 200 / (2**10)  # 200 MiB
+
+    # N = 8
+    # '''num of nodes'''
+    # L = 61
+    # '''num of layers'''
+
+    LAMBDA_BASE = 1
+    '''One crash per unit time [/time]'''
+    PI_STABLE = 0.8
+    PI_UNSTABLE = 0
+
+    LAMBDA = np.array([LAMBDA_BASE for _ in range(N)])
+    '''The expected Poisson count (mean) for node'''
+    PI = np.array([PI_UNSTABLE if i == 0 else PI_STABLE for i in range(N)])
+    '''Probability that the node is fault-tolerant'''
+
     S = np.array([LAYERSIZE for _ in range(L)])
     '''size of layers (= |l|)'''
     C = np.array([disk_size for _ in range(N)]
@@ -119,7 +138,7 @@ def calc(disk_size):
         constraints.append(f[crashed_node]['src_sender'][crashed_node] == 0)
 
     # objective function
-    obj = cp.Minimize(P @ t)
+    obj = cp.Minimize(LAMBDA * (1 - PI) @ t)
 
     # Form and solve problem.
     prob = cp.Problem(obj, constraints)
@@ -127,7 +146,7 @@ def calc(disk_size):
     prob.solve(solver=cp.HIGHS, canon_backend=cp.SCIPY_CANON_BACKEND)
 
     print(f"result(disk={disk_size}GiB):", prob.status)
-    print(f"expected value of downtime[s]: {prob.value:.3f}")
+    print(f"expected value of downtime per unit time[s]: {prob.value}")
     # print("proportion of layers for each node", x.value)
     print("downtime for each node's crash[s]", t.value)
     if prob.status == 'optimal':
