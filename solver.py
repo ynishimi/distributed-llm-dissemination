@@ -12,11 +12,11 @@ sns.set_context("paper")
 def calc(disk_size):
 
     # problem data
-
     LAYERSIZE = 1.81  # 1.81 GiB
-    # DISKSIZE = 20 * 2**30  # 20 GiB
+
     NETWORKBW = (12.5/8 * 10**9) / (2**30)  # 12.5 Gbps
     DISKBW = 200 / (2**10)  # 200 MiB
+    CLIENTBW = 15.5 / (2**10)  # 15.5 MiB
 
     N = 4
     '''num of nodes'''
@@ -24,7 +24,6 @@ def calc(disk_size):
     '''num of layers'''
 
     # LAYERSIZE = 10.18
-    # # DISKSIZE = 20  # 20 GiB
     # NETWORKBW = (12.5/8 * 10**9) / (2**30)  # 12.5 Gbps
     # DISKBW = 200 / (2**10)  # 200 MiB
 
@@ -36,7 +35,8 @@ def calc(disk_size):
     LAMBDA_BASE = 1
     '''One crash per unit time [/time]'''
     PI_STABLE = 0.8
-    PI_UNSTABLE = 0
+    # PI_UNSTABLE = 0
+    PI_UNSTABLE = 0.8
 
     LAMBDA = np.array([LAMBDA_BASE for _ in range(N)])
     '''The expected Poisson count (mean) for node'''
@@ -47,10 +47,12 @@ def calc(disk_size):
     '''size of layers (= |l|)'''
     C = np.array([disk_size for _ in range(N)]
                  )
+    # np.append(C, math.inf)
     '''size of disks'''
     B = np.array([NETWORKBW for _ in range(N)])
     '''network bandwidth of nodes'''
     D = np.array([DISKBW for _ in range(N)])
+    # np.append(D, CLIENTBW)
     '''rate of disks'''
 
     INIT_ASSIGNMENT = [[L//N * i + j for j in range(L//N)]
@@ -70,10 +72,14 @@ def calc(disk_size):
         f[crashed_node] = {}
         f[crashed_node]['src_sender'] = cp.Variable(N, nonneg=True)
         f[crashed_node]['sender_disk'] = cp.Variable(
-            N, nonneg=True)  # TODO: add a client?
+            N, nonneg=True)
         f[crashed_node]['disk_layer'] = cp.Variable((N, L), nonneg=True)
         f[crashed_node]['layer_receiver'] = cp.Variable(L, nonneg=True)
         f[crashed_node]['receiver_sink'] = cp.Variable(N, nonneg=True)
+
+        # client
+        f[crashed_node]['sender_client'] = cp.Variable(1, nonneg=True)
+        f[crashed_node]['client_layer'] = cp.Variable((1, L), nonneg=True)
 
     # constraints
 
@@ -85,23 +91,43 @@ def calc(disk_size):
         # network bw
         constraints.append(f[crashed_node]['src_sender'] <=
                            cp.multiply(B, t[crashed_node]))
-        # flow
-        constraints.append(f[crashed_node]['src_sender'] ==
-                           f[crashed_node]['sender_disk'])
+
+        # client is connected to node 0 or 1
+        client_node = 0 if crashed_node != 0 else 1
+
+        for i in range(N):
+            if i == client_node:
+                constraints.append(cp.sum(f[crashed_node]['src_sender'][i]) ==
+                                   f[crashed_node]['sender_disk'][i] + f[crashed_node]['sender_client'])
+            else:
+                constraints.append(f[crashed_node]['src_sender'][i]
+                                   == f[crashed_node]['sender_disk'][i])
+
         # disk bw
         constraints.append(f[crashed_node]['sender_disk'] <=
                            cp.multiply(D, t[crashed_node]))
+
+        # client bw
+        constraints.append(f[crashed_node]['sender_client']
+                           <= CLIENTBW * t[crashed_node])
+
         # flow
         constraints.append(f[crashed_node]['sender_disk'] ==
                            cp.sum(f[crashed_node]['disk_layer'], axis=1))
+
+        # client flow
+        constraints.append(f[crashed_node]['sender_client'] ==
+                           cp.sum(f[crashed_node]['client_layer'], axis=1))
+
         # data obtained by each disk
         constraints.append(f[crashed_node]['disk_layer'] <= cp.multiply(x, S))
         # flow
         for node_asgn in range(len(ALT_ASSIGNMENTS[crashed_node])):
             if len(ALT_ASSIGNMENTS[crashed_node][node_asgn]) == 0:
                 continue
-            constraints.append(cp.sum(f[crashed_node]['disk_layer'][:, ALT_ASSIGNMENTS[crashed_node][node_asgn]],
-                                      axis=0) == f[crashed_node]['layer_receiver'][ALT_ASSIGNMENTS[crashed_node][node_asgn]])
+            constraints.append(cp.sum(f[crashed_node]['disk_layer'][:, ALT_ASSIGNMENTS[crashed_node][node_asgn]], axis=0) +
+                               cp.sum(f[crashed_node]['client_layer'][:, ALT_ASSIGNMENTS[crashed_node][node_asgn]], axis=0) ==
+                               f[crashed_node]['layer_receiver'][ALT_ASSIGNMENTS[crashed_node][node_asgn]])
 
         # missing layers should be sent, but existing layers should not be sent or saved
         for receiver in range(N):
