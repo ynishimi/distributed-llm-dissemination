@@ -15,8 +15,8 @@ def calc(disk_size):
     LAYERSIZE = 1.81  # 1.81 GiB
 
     NETWORKBW = (12.5/8 * 10**9) / (2**30)  # 12.5 Gbps
-    # DISKBW = 200 / (2**10)  # 200 MiB
-    DISKBW = 1
+    # DISKBW = 200 / (2**10)  # 200 MiB/s
+    DISKBW = 1  # 1 GiB/s
     CLIENTBW = 15.5 / (2**10)  # 15.5 MiB
     # CLIENTBW = 0
 
@@ -40,8 +40,8 @@ def calc(disk_size):
 
     LAMBDA_BASE = 1
     '''One crash per unit time [/time]'''
-    PI_STABLE = 0.8
-    # PI_STABLE = 0
+    # PI_STABLE = 0.8
+    PI_STABLE = 0
     PI_UNSTABLE = 0
     # PI_UNSTABLE = 0.8
 
@@ -101,13 +101,50 @@ def calc(disk_size):
 
         client_node = CLIENT_OWNER_PRIMARY if crashed_node != CLIENT_OWNER_PRIMARY else CLIENT_OWNER_SECONDERY
 
-        for i in range(N):
-            if i == client_node:
-                constraints.append(cp.sum(f[crashed_node]['src_sender'][i]) ==
-                                   f[crashed_node]['sender_disk'][i] + f[crashed_node]['sender_client'])
+        # missing layers should be sent, but existing layers should not be sent or saved
+        local_disk_consumed = {}
+        local_client_consumed = {}
+        for receiver in range(N):
+            assigned_layers = ALT_ASSIGNMENTS[crashed_node][receiver]
+            for l in assigned_layers:
+                if l in INIT_ASSIGNMENT[receiver]:
+                    # already has l
+                    constraints.append(
+                        f[crashed_node]['layer_receiver'][l] == 0)
+                    constraints.append(x[receiver, l] == 0)
+                else:
+                    # missing l
+                    constraints.append(
+                        f[crashed_node]['layer_receiver'][l] == S[l])
+
+            # layers that the receiver node should receive for given crashed_node
+            layers_to_receive = [
+                l for l in assigned_layers if l not in INIT_ASSIGNMENT[receiver]
+            ]
+
+            # amount of data directly loaded from the local disk/client
+            local_disk_consumed[receiver] = cp.sum(
+                f[crashed_node]['disk_layer'][receiver, layers_to_receive]) if layers_to_receive else 0
+            local_client_consumed[receiver] = cp.sum(f[crashed_node]['client_layer'][0, layers_to_receive]) if (
+                layers_to_receive and receiver == client_node) else 0
+
+            if layers_to_receive:
+                constraints.append(
+                    # flow: each layer is sent to a receiver, based on an alternative assignment. Ignore local disk's read, as it doesn't use the network bandwidth.
+                    cp.sum(f[crashed_node]['layer_receiver'][layers_to_receive]) - local_disk_consumed[receiver] == f[crashed_node]['receiver_sink'][receiver])
             else:
-                constraints.append(f[crashed_node]['src_sender'][i]
-                                   == f[crashed_node]['sender_disk'][i])
+                constraints.append(
+                    f[crashed_node]['receiver_sink'][receiver] == 0)
+
+        for sender in range(N):
+            # flow (sender)
+            if sender == client_node:
+                # local disk/client's read do not involve transmission over the network.
+                constraints.append(cp.sum(f[crashed_node]['src_sender'][sender]) ==
+                                   f[crashed_node]['sender_disk'][sender] + f[crashed_node]['sender_client'] - local_disk_consumed[sender] - local_client_consumed[sender])
+            else:
+                constraints.append(f[crashed_node]['src_sender'][sender]
+                                   == f[crashed_node]['sender_disk'][sender] - local_disk_consumed[sender])
 
         # disk bw
         constraints.append(f[crashed_node]['sender_disk'] <=
@@ -134,31 +171,6 @@ def calc(disk_size):
             constraints.append(cp.sum(f[crashed_node]['disk_layer'][:, ALT_ASSIGNMENTS[crashed_node][node_asgn]], axis=0) +
                                cp.sum(f[crashed_node]['client_layer'][:, ALT_ASSIGNMENTS[crashed_node][node_asgn]], axis=0) ==
                                f[crashed_node]['layer_receiver'][ALT_ASSIGNMENTS[crashed_node][node_asgn]])
-
-        # missing layers should be sent, but existing layers should not be sent or saved
-        for receiver in range(N):
-            assigned_layers = ALT_ASSIGNMENTS[crashed_node][receiver]
-            for l in assigned_layers:
-                if l in INIT_ASSIGNMENT[receiver]:
-                    # already has l
-                    constraints.append(
-                        f[crashed_node]['layer_receiver'][l] == 0)
-                    constraints.append(x[receiver, l] == 0)
-                else:
-                    # missing l
-                    constraints.append(
-                        f[crashed_node]['layer_receiver'][l] == S[l])
-
-            layers_to_receive = [
-                l for l in assigned_layers if l not in INIT_ASSIGNMENT[receiver]
-            ]
-            if layers_to_receive:
-                constraints.append(
-                    # flow: each layer is sent to a receiver, based on an alternative assignment
-                    cp.sum(f[crashed_node]['layer_receiver'][layers_to_receive]) == f[crashed_node]['receiver_sink'][receiver])
-            else:
-                constraints.append(
-                    f[crashed_node]['receiver_sink'][receiver] == 0)
 
         # network bw
         constraints.append(f[crashed_node]['receiver_sink']
@@ -204,6 +216,6 @@ def calc(disk_size):
 
 
 # try with different disk size
-disk_sizes = [i for i in range(60, 60 + 1)]
+disk_sizes = [i for i in range(1, 60 + 1)]
 for disk_size in disk_sizes:
     calc(disk_size)
