@@ -15,8 +15,14 @@ def calc(disk_size):
     LAYERSIZE = 1.81  # 1.81 GiB
 
     NETWORKBW = (12.5/8 * 10**9) / (2**30)  # 12.5 Gbps
-    DISKBW = 200 / (2**10)  # 200 MiB
+    # DISKBW = 200 / (2**10)  # 200 MiB
+    DISKBW = 1
     CLIENTBW = 15.5 / (2**10)  # 15.5 MiB
+    # CLIENTBW = 0
+
+    # client is connected to node 0 or 1
+    CLIENT_OWNER_PRIMARY = 0
+    CLIENT_OWNER_SECONDERY = 1
 
     N = 4
     '''num of nodes'''
@@ -35,8 +41,9 @@ def calc(disk_size):
     LAMBDA_BASE = 1
     '''One crash per unit time [/time]'''
     PI_STABLE = 0.8
-    # PI_UNSTABLE = 0
-    PI_UNSTABLE = 0.8
+    # PI_STABLE = 0
+    PI_UNSTABLE = 0
+    # PI_UNSTABLE = 0.8
 
     LAMBDA = np.array([LAMBDA_BASE for _ in range(N)])
     '''The expected Poisson count (mean) for node'''
@@ -92,8 +99,7 @@ def calc(disk_size):
         constraints.append(f[crashed_node]['src_sender'] <=
                            cp.multiply(B, t[crashed_node]))
 
-        # client is connected to node 0 or 1
-        client_node = 0 if crashed_node != 0 else 1
+        client_node = CLIENT_OWNER_PRIMARY if crashed_node != CLIENT_OWNER_PRIMARY else CLIENT_OWNER_SECONDERY
 
         for i in range(N):
             if i == client_node:
@@ -164,7 +170,8 @@ def calc(disk_size):
         constraints.append(f[crashed_node]['src_sender'][crashed_node] == 0)
 
     # objective function
-    obj = cp.Minimize(LAMBDA * (1 - PI) @ t)
+    # obj = cp.Minimize(LAMBDA * (1 - PI) @ t)
+    obj = cp.Minimize(LAMBDA * (1 - PI) @ t + 1e-5 * cp.sum(x))
 
     # Form and solve problem.
     prob = cp.Problem(obj, constraints)
@@ -187,9 +194,9 @@ def calc(disk_size):
                         )
             plt.xlabel("Layer")
             plt.ylabel("Node")
-            plt.title(f"Backup layer placement(disk={disk_size}GiB)")
+            plt.title(f"Backup layer placement(disk={disk_size:2d}GiB)")
             plt.savefig(
-                f"heatmap_{disk_size}GiB.png", bbox_inches='tight')
+                f"heatmap_{disk_size:02d}GiB.png", bbox_inches='tight')
             # plt.show()
             plt.close('all')
 
@@ -197,6 +204,6 @@ def calc(disk_size):
 
 
 # try with different disk size
-disk_sizes = [i for i in range(15, 60 + 1)]
+disk_sizes = [i for i in range(60, 60 + 1)]
 for disk_size in disk_sizes:
     calc(disk_size)
