@@ -1,0 +1,240 @@
+result(disk=1GiB): optimal
+expected value of downtime per unit time[s]: 6513.961312422029
+downtime for each node's crash[s] [2086.317 1236.728 1236.728 1954.188]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=2GiB): optimal
+expected value of downtime per unit time[s]: 5853.316173231152
+downtime for each node's crash[s] [2020.253 1038.534 1038.534 1755.995]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=3GiB): optimal
+expected value of downtime per unit time[s]: 5192.671034040279
+downtime for each node's crash[s] [1916.532  840.341  840.341 1595.458]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=4GiB): optimal
+expected value of downtime per unit time[s]: 4532.025894849403
+downtime for each node's crash[s] [1718.338  642.147  642.147 1529.394]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=5GiB): optimal
+expected value of downtime per unit time[s]: 3871.3807556585275
+downtime for each node's crash[s] [1520.145  443.954  443.954 1463.329]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=6GiB): optimal
+expected value of downtime per unit time[s]: 3286.04916485475
+downtime for each node's crash[s] [1359.608  283.417  283.417 1359.608]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=7GiB): optimal
+expected value of downtime per unit time[s]: 2757.5330579219394
+downtime for each node's crash[s] [1227.479  151.288  151.288 1227.479]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=8GiB): optimal
+expected value of downtime per unit time[s]: 2270.9929612371784
+downtime for each node's crash[s] [1105.844   40.147   40.147 1084.856]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=9GiB): optimal
+expected value of downtime per unit time[s]: 2006.734918820497
+downtime for each node's crash[s] [1039.779   40.147   40.147  886.662]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=10GiB): optimal
+expected value of downtime per unit time[s]: 1742.4768764038156
+downtime for each node's crash[s] [973.715  40.147  40.147 688.469]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=11GiB): optimal
+expected value of downtime per unit time[s]: 1478.218833987134
+downtime for each node's crash[s] [907.65   40.147  40.147 490.275]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=12GiB): optimal
+expected value of downtime per unit time[s]: 1213.9607915704526
+downtime for each node's crash[s] [841.586  40.147  40.147 292.081]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=13GiB): optimal
+expected value of downtime per unit time[s]: 949.702749153771
+downtime for each node's crash[s] [775.521  40.147  40.147  93.888]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=14GiB): optimal
+expected value of downtime per unit time[s]: 685.4447067370895
+downtime for each node's crash[s] [533.471  40.147  40.147  71.68 ]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=15GiB): optimal
+expected value of downtime per unit time[s]: 421.186664320408
+downtime for each node's crash[s] [264.093  40.147  40.147  76.8  ]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=16GiB): optimal
+expected value of downtime per unit time[s]: 234.84233002075482
+downtime for each node's crash[s] [81.92  37.128 40.147 75.648]
+occupied disk space for each node[%]: [100. 100. 100. 100.]
+result(disk=17GiB): optimal
+expected value of downtime per unit time[s]: 220.3351976016041
+downtime for each node's crash[s] [78.706 36.135 36.135 69.358]
+occupied disk space for each node[%]: [ 89.26 100.   100.   100.  ]
+result(disk=18GiB): optimal
+expected value of downtime per unit time[s]: 210.8317181179415
+downtime for each node's crash[s] [83.826 36.135 36.135 54.734]
+occupied disk space for each node[%]: [ 68.433 100.    100.    100.   ]
+result(disk=19GiB): optimal
+expected value of downtime per unit time[s]: 201.32823863427893
+downtime for each node's crash[s] [74.854 36.135 36.135 54.203]
+occupied disk space for each node[%]: [ 64.285 100.    100.     85.514]
+result(disk=20GiB): optimal
+expected value of downtime per unit time[s]: 191.8247591506164
+downtime for each node's crash[s] [65.351 36.135 36.135 54.203]
+occupied disk space for each node[%]: [ 61.071 100.    100.     71.958]
+result(disk=21GiB): optimal
+expected value of downtime per unit time[s]: 182.32127966695384
+downtime for each node's crash[s] [55.847 36.135 36.135 54.203]
+occupied disk space for each node[%]: [ 58.163 100.    100.     59.692]
+result(disk=22GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [55.519 96.241 96.241 55.519]
+result(disk=23GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [53.105 92.057 92.057 53.105]
+result(disk=24GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [50.892 88.221 88.221 50.892]
+result(disk=25GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [48.857 84.692 84.692 48.857]
+result(disk=26GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [46.978 81.435 81.435 46.978]
+result(disk=27GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [45.238 78.419 78.419 45.238]
+result(disk=28GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [43.622 75.618 75.618 43.622]
+result(disk=29GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [42.118 73.01  73.01  42.118]
+result(disk=30GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [40.714 70.577 70.577 40.714]
+result(disk=31GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [39.401 68.3   68.3   39.401]
+result(disk=32GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [38.169 66.166 66.166 38.169]
+result(disk=33GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [37.013 64.161 64.161 37.013]
+result(disk=34GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [35.924 62.274 62.274 35.924]
+result(disk=35GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [34.898 60.494 60.494 34.898]
+result(disk=36GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [33.928 58.814 58.814 33.928]
+result(disk=37GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [33.011 57.224 57.224 33.011]
+result(disk=38GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [32.143 55.719 55.719 32.143]
+result(disk=39GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [31.318 54.29  54.29  31.318]
+result(disk=40GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [30.535 52.933 52.933 30.535]
+result(disk=41GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [29.791 51.642 51.642 29.791]
+result(disk=42GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [29.081 50.412 50.412 29.081]
+result(disk=43GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [28.405 49.24  49.24  28.405]
+result(disk=44GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [27.76  48.121 48.121 27.76 ]
+result(disk=45GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [27.143 47.051 47.051 27.143]
+result(disk=46GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [26.553 46.028 46.028 26.553]
+result(disk=47GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [25.988 45.049 45.049 25.988]
+result(disk=48GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [25.446 44.11  44.11  25.446]
+result(disk=49GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [24.927 43.21  43.21  24.927]
+result(disk=50GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [24.428 42.346 42.346 24.428]
+result(disk=51GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [23.949 41.516 41.516 23.949]
+result(disk=52GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [23.489 40.717 40.717 23.489]
+result(disk=53GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [23.046 39.949 39.949 23.046]
+result(disk=54GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [22.619 39.209 39.209 22.619]
+result(disk=55GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [22.208 38.496 38.496 22.208]
+result(disk=56GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [21.811 37.809 37.809 21.811]
+result(disk=57GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [21.428 37.146 37.146 21.428]
+result(disk=58GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [21.059 36.505 36.505 21.059]
+result(disk=59GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [20.702 35.886 35.886 20.702]
+result(disk=60GiB): optimal
+expected value of downtime per unit time[s]: 180.67689207148658
+downtime for each node's crash[s] [54.203 36.135 36.135 54.203]
+occupied disk space for each node[%]: [20.357 35.288 35.288 20.357]
