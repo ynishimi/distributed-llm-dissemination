@@ -1,5 +1,6 @@
 import seaborn as sns
 import matplotlib.pyplot as plt
+from dataclasses import dataclass
 import cvxpy as cp
 import numpy as np
 
@@ -9,14 +10,29 @@ sns.set_theme()
 sns.set_context("paper")
 
 
-def calc(disk_size, ram_size):
+@dataclass
+class Config:
+    name: str
+    '''name of the config'''
+    n: int
+    '''num of nodes'''
+    l: int
+    '''num of layers'''
+    layer_size: float
+    '''size of layers (= |l|)'''
+    disk_sizes: list[int]
+    '''size of disks'''
+    ram_sizes: list[int]
+    '''size of rams'''
+
+
+def calc(disk_size, ram_size, config: Config):
 
     # problem data
-    LAYERSIZE = 1.81  # 1.81 GiB
 
     NETWORKBW = (12.5/8 * 10**9) / (2**30)  # 12.5 Gbps
-    DISKBW = 200 / (2**10)  # 200 MiB/s
-    # DISKBW = 1  # 1 GiB/s
+    # DISKBW = 200 / (2**10)  # 200 MiB/s
+    DISKBW = 1  # 1 GiB/s
     RAMBW = 1  # 1 GiB/s
     CLIENTBW = 15.5 / (2**10)  # 15.5 MiB
     # CLIENTBW = 0
@@ -25,19 +41,9 @@ def calc(disk_size, ram_size):
     CLIENT_OWNER_PRIMARY = 0
     CLIENT_OWNER_SECONDERY = 1
 
-    N = 4
-    '''num of nodes'''
-    L = 36
-    '''num of layers'''
-
-    # LAYERSIZE = 10.18
-    # NETWORKBW = (12.5/8 * 10**9) / (2**30)  # 12.5 Gbps
-    # DISKBW = 200 / (2**10)  # 200 MiB
-
-    # N = 8
-    # '''num of nodes'''
-    # L = 61
-    # '''num of layers'''
+    n = config.n
+    assigned_layer = config.l
+    layer_size = config.layer_size
 
     LAMBDA_BASE = 1
     '''One crash per unit time [/time]'''
@@ -46,53 +52,57 @@ def calc(disk_size, ram_size):
     PI_UNSTABLE = 0
     # PI_UNSTABLE = 0.8
 
-    LAMBDA = np.array([LAMBDA_BASE for _ in range(N)])
+    LAMBDA = np.array([LAMBDA_BASE for _ in range(n)])
     '''The expected Poisson count (mean) for node'''
-    PI = np.array([PI_UNSTABLE if i == 0 else PI_STABLE for i in range(N)])
+    PI = np.array([PI_UNSTABLE if i == 0 else PI_STABLE for i in range(n)])
     '''Probability that the node is fault-tolerant'''
 
-    S = np.array([LAYERSIZE for _ in range(L)])
+    S = np.array([layer_size for _ in range(assigned_layer)])
     '''size of layers (= |l|)'''
-    C = np.array([disk_size for _ in range(N)])
+    C = np.array([disk_size for _ in range(n)])
     '''size of disks'''
-    C_RAM = np.array([ram_size for _ in range(N)])
+    C_RAM = np.array([ram_size for _ in range(n)])
     '''size of rams'''
-    B = np.array([NETWORKBW for _ in range(N)])
+    B = np.array([NETWORKBW for _ in range(n)])
     '''network bandwidth of nodes'''
-    D = np.array([DISKBW for _ in range(N)])
+    D = np.array([DISKBW for _ in range(n)])
     '''rate of disks'''
-    D_RAM = np.array([RAMBW for _ in range(N)])
+    D_RAM = np.array([RAMBW for _ in range(n)])
     '''rate of rams'''
 
-    INIT_ASSIGNMENT = [[L//N * i + j for j in range(L//N)]
-                       for i in range(N)]
-    DUMMY_ASSIGNMENT = [[L//(N-1) * i + j for j in range(L//(N-1))]
-                        for i in range(N-1)]
+    INIT_ASSIGNMENT = [[assigned_layer//n * i + j for j in range(assigned_layer//n)]
+                       for i in range(n)]
+    DUMMY_ASSIGNMENT = [[assigned_layer//(n-1) * i + j for j in range(assigned_layer//(n-1))]
+                        for i in range(n-1)]
     ALT_ASSIGNMENTS = [DUMMY_ASSIGNMENT[:i] + [[]] +
-                       DUMMY_ASSIGNMENT[i:] for i in range(N)]
+                       DUMMY_ASSIGNMENT[i:] for i in range(n)]
 
     # variables
 
     # a proportion of the layer l stored to node k
-    x = cp.Variable((N, L), nonneg=True)
-    x_ram = cp.Variable((N, L), nonneg=True)
-    t = cp.Variable(N, nonneg=True)  # downtime for each node's crash scenario
+    x = cp.Variable((n, assigned_layer), nonneg=True)
+    x_ram = cp.Variable((n, assigned_layer), nonneg=True)
+    t = cp.Variable(n, nonneg=True)  # downtime for each node's crash scenario
     f = {}  # edges in the flow graph
-    for crashed_node in range(N):  # for each crash scenario:
+    for crashed_node in range(n):  # for each crash scenario:
         f[crashed_node] = {}
-        f[crashed_node]['src_sender'] = cp.Variable(N, nonneg=True)
+        f[crashed_node]['src_sender'] = cp.Variable(n, nonneg=True)
         f[crashed_node]['sender_disk'] = cp.Variable(
-            N, nonneg=True)
+            n, nonneg=True)
         f[crashed_node]['sender_ram'] = cp.Variable(
-            N, nonneg=True)
-        f[crashed_node]['disk_layer'] = cp.Variable((N, L), nonneg=True)
-        f[crashed_node]['ram_layer'] = cp.Variable((N, L), nonneg=True)
-        f[crashed_node]['layer_receiver'] = cp.Variable(L, nonneg=True)
-        f[crashed_node]['receiver_sink'] = cp.Variable(N, nonneg=True)
+            n, nonneg=True)
+        f[crashed_node]['disk_layer'] = cp.Variable(
+            (n, assigned_layer), nonneg=True)
+        f[crashed_node]['ram_layer'] = cp.Variable(
+            (n, assigned_layer), nonneg=True)
+        f[crashed_node]['layer_receiver'] = cp.Variable(
+            assigned_layer, nonneg=True)
+        f[crashed_node]['receiver_sink'] = cp.Variable(n, nonneg=True)
 
         # client
         f[crashed_node]['sender_client'] = cp.Variable(1, nonneg=True)
-        f[crashed_node]['client_layer'] = cp.Variable((1, L), nonneg=True)
+        f[crashed_node]['client_layer'] = cp.Variable(
+            (1, assigned_layer), nonneg=True)
 
     # constraints
 
@@ -106,7 +116,7 @@ def calc(disk_size, ram_size):
     # proportion constraint: cannot hold more than 1 layer combining disk and ram
     constraints.append(x + x_ram <= 1)
 
-    for crashed_node in range(N):
+    for crashed_node in range(n):
         # network bw
         constraints.append(f[crashed_node]['src_sender'] <=
                            cp.multiply(B, t[crashed_node]))
@@ -117,23 +127,23 @@ def calc(disk_size, ram_size):
         local_disk_consumed = {}
         local_ram_consumed = {}
         local_client_consumed = {}
-        for receiver in range(N):
+        for receiver in range(n):
             assigned_layers = ALT_ASSIGNMENTS[crashed_node][receiver]
-            for l in assigned_layers:
-                if l in INIT_ASSIGNMENT[receiver]:
+            for assigned_layer in assigned_layers:
+                if assigned_layer in INIT_ASSIGNMENT[receiver]:
                     # already has l
                     constraints.append(
-                        f[crashed_node]['layer_receiver'][l] == 0)
-                    constraints.append(x[receiver, l] == 0)
-                    constraints.append(x_ram[receiver, l] == 0)
+                        f[crashed_node]['layer_receiver'][assigned_layer] == 0)
+                    constraints.append(x[receiver, assigned_layer] == 0)
+                    constraints.append(x_ram[receiver, assigned_layer] == 0)
                 else:
                     # missing l
                     constraints.append(
-                        f[crashed_node]['layer_receiver'][l] == S[l])
+                        f[crashed_node]['layer_receiver'][assigned_layer] == S[assigned_layer])
 
             # layers that the receiver node should receive for given crashed_node
             layers_to_receive = [
-                l for l in assigned_layers if l not in INIT_ASSIGNMENT[receiver]
+                assigned_layer for assigned_layer in assigned_layers if assigned_layer not in INIT_ASSIGNMENT[receiver]
             ]
 
             # amount of data directly loaded from the local disk/ram/client
@@ -152,7 +162,7 @@ def calc(disk_size, ram_size):
                 constraints.append(
                     f[crashed_node]['receiver_sink'][receiver] == 0)
 
-        for sender in range(N):
+        for sender in range(n):
             # flow (sender)
             if sender == client_node:
                 # local disk/ram/client's read do not involve transmission over the network.
@@ -226,9 +236,10 @@ def calc(disk_size, ram_size):
         # print("proportion of layers for each node", x.value)
         print("downtime for each node's crash[s]", t.value)
         print(
-            f"occupied disk space for each node[%]: {(x @ S).value/disk_size * 100}")
+            f"occupied disk space for each node[%]: {(x @ S).value/disk_size * 100 if disk_size != 0 else "N/A"}")
         print(
-            f"occupied RAM space for each node[%]: {(x_ram @ S).value/ram_size * 100}")
+            f"occupied RAM space for each node[%]: {(x_ram @ S).value/ram_size * 100 if ram_size != 0 else "N/A"}")
+        print(f"solve time[s]: {prob.solver_stats.solve_time}")
 
         def plot_assignment(x_val, y_val):
             '''creates a heatmap image'''
@@ -240,7 +251,7 @@ def calc(disk_size, ram_size):
             plt.xlabel("Layer")
             plt.ylabel("Node")
             plt.title(
-                f"Backup layer placement on Disk (disk={disk_size:2d}GiB)")
+                f"Backup layer placement on Disk (disk={disk_size:02d}GiB)")
 
             plt.subplot(2, 1, 2)
             sns.heatmap(y_val*100, cmap="Oranges",
@@ -248,20 +259,26 @@ def calc(disk_size, ram_size):
             plt.xlabel("Layer")
             plt.ylabel("Node")
             plt.title(
-                f"Backup layer placement on RAM (ram={ram_size:2.1f}GiB)")
+                f"Backup layer placement on RAM (ram={ram_size:02d}GiB)")
 
             plt.tight_layout()
             plt.savefig(
-                f"heatmap_disk{disk_size:02d}GiB_ram{ram_size:04.1f}GiB.png", bbox_inches='tight')
+                f"results/{config.name}/heatmap_disk{disk_size:02d}GiB_ram{ram_size:02d}GiB.png", bbox_inches='tight')
             # plt.show()
             plt.close('all')
 
         plot_assignment(x.value, x_ram.value)
 
 
+config_mid = Config(name="mid", n=4, l=36, layer_size=1.81, disk_sizes=[
+                    i for i in range(0, 128 + 1)], ram_sizes=[0] + [2 ** i for i in range(0, 6 + 1)])
+config_large = Config("large", n=8, l=61, layer_size=10.18, disk_sizes=[
+    i for i in range(0, 512 + 1)], ram_sizes=[0] + [2 ** i for i in range(0, 6 + 1)])
+
+configs = [config_mid, config_large]
+
 # try with different disk and ram sizes
-disk_sizes = [i for i in range(60, 60 + 1)]
-ram_sizes = [2 * i for i in range(5, 9)]
-for disk_size in disk_sizes:
-    for ram_size in ram_sizes:
-        calc(disk_size, ram_size)
+for config in configs:
+    for disk_size in config.disk_sizes:
+        for ram_size in config.ram_sizes:
+            calc(disk_size, ram_size, config)
