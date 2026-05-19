@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from dataclasses import dataclass
 import cvxpy as cp
 import numpy as np
+import pandas as pd
 
 np.set_printoptions(precision=3)
 
@@ -230,55 +231,81 @@ def calc(disk_size, ram_size, config: Config):
 
     prob.solve(solver=cp.HIGHS, canon_backend=cp.SCIPY_CANON_BACKEND)
 
-    print(f"result(disk={disk_size}GiB, ram={ram_size}GiB):", prob.status)
-    if prob.status in ['optimal', 'optimal_inaccurate']:
-        print(f"expected value of downtime per unit time[s]: {prob.value}")
-        # print("proportion of layers for each node", x.value)
-        print("downtime for each node's crash[s]", t.value)
+    def plot_assignment(x_val, y_val):
+        '''creates a heatmap image'''
+
+        plt.figure(figsize=(16, 8))
+        plt.subplot(2, 1, 1)
+        sns.heatmap(x_val*100, cmap="Blues",
+                    )
+        plt.xlabel("Layer")
+        plt.ylabel("Node")
+        plt.title(
+            f"Backup layer placement on Disk (disk={disk_size:02d}GiB)")
+
+        plt.subplot(2, 1, 2)
+        sns.heatmap(y_val*100, cmap="Oranges",
+                    )
+        plt.xlabel("Layer")
+        plt.ylabel("Node")
+        plt.title(
+            f"Backup layer placement on RAM (ram={ram_size:02d}GiB)")
+
+        plt.tight_layout()
+        plt.savefig(
+            f"results/{config.name}/images/heatmap_disk{disk_size:02d}GiB_ram{ram_size:02d}GiB.png", bbox_inches='tight')
+        # plt.show()
+        plt.close('all')
+
+    def print_results():
         print(
-            f"occupied disk space for each node[%]: {(x @ S).value/disk_size * 100 if disk_size != 0 else "N/A"}")
-        print(
-            f"occupied RAM space for each node[%]: {(x_ram @ S).value/ram_size * 100 if ram_size != 0 else "N/A"}")
-        print(f"solve time[s]: {prob.solver_stats.solve_time}")
+            f"result(config={config.name}, disk={disk_size:03d}GiB, ram={ram_size:03d}GiB):", prob.status)
+        # if prob.status == 'optimal':
+        #     print(f"expected value of downtime per unit time[s]: {prob.value}")
+        #     # print("proportion of layers for each node", x.value)
+        #     print("downtime for each node's crash[s]", t.value)
+        #     print(
+        #         f"occupied disk space for each node[%]: {(x @ S).value/disk_size * 100 if disk_size != 0 else "N/A"}")
+        #     print(
+        #         f"occupied RAM space for each node[%]: {(x_ram @ S).value/ram_size * 100 if ram_size != 0 else "N/A"}")
+        #     print(f"solve time[s]: {prob.solver_stats.solve_time}")
 
-        def plot_assignment(x_val, y_val):
-            '''creates a heatmap image'''
+        #     plot_assignment(x.value, x_ram.value)
 
-            plt.figure(figsize=(16, 8))
-            plt.subplot(2, 1, 1)
-            sns.heatmap(x_val*100, cmap="Blues",
-                        )
-            plt.xlabel("Layer")
-            plt.ylabel("Node")
-            plt.title(
-                f"Backup layer placement on Disk (disk={disk_size:02d}GiB)")
+    print_results()
 
-            plt.subplot(2, 1, 2)
-            sns.heatmap(y_val*100, cmap="Oranges",
-                        )
-            plt.xlabel("Layer")
-            plt.ylabel("Node")
-            plt.title(
-                f"Backup layer placement on RAM (ram={ram_size:02d}GiB)")
-
-            plt.tight_layout()
-            plt.savefig(
-                f"results/{config.name}/heatmap_disk{disk_size:02d}GiB_ram{ram_size:02d}GiB.png", bbox_inches='tight')
-            # plt.show()
-            plt.close('all')
-
-        plot_assignment(x.value, x_ram.value)
+    return {
+        "name": config.name,
+        "n": config.n,
+        "l": config.l,
+        "layer_size": config.layer_size,
+        "expected_time": prob.value,
+        "downtime": t.value,
+        "solve_time": prob.solver_stats.solve_time,
+        "disk_usage": (x @ S).value,
+        "ram_usage": (x_ram @ S).value,
+    }
 
 
 config_mid = Config(name="mid", n=4, l=36, layer_size=1.81, disk_sizes=[
-                    i for i in range(0, 128 + 1)], ram_sizes=[0] + [2 ** i for i in range(0, 6 + 1)])
+                    i for i in range(0, 128 + 1)], ram_sizes=[0] + [2 ** i for i in range(0, 7 + 1)])
 config_large = Config("large", n=8, l=61, layer_size=10.18, disk_sizes=[
-    i for i in range(0, 512 + 1)], ram_sizes=[0] + [2 ** i for i in range(0, 6 + 1)])
+    i for i in range(0, 512 + 1)], ram_sizes=[0] + [2 ** i for i in range(0, 7 + 1)])
 
 configs = [config_mid, config_large]
+
+rows = []
 
 # try with different disk and ram sizes
 for config in configs:
     for disk_size in config.disk_sizes:
         for ram_size in config.ram_sizes:
-            calc(disk_size, ram_size, config)
+            rows.append(calc(disk_size, ram_size, config))
+
+df = pd.DataFrame(rows)
+
+dfs = []
+
+for config in configs:
+    df_config = df[df['name'] == config.name]
+    df_config.to_csv(f'{config.name}/result.csv')
