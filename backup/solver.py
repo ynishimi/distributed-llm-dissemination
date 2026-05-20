@@ -34,7 +34,7 @@ def calc(disk_size, ram_size, config: Config):
     NETWORKBW = (12.5/8 * 10**9) / (2**30)  # 12.5 Gbps
     # DISKBW = 200 / (2**10)  # 200 MiB/s
     DISKBW = 1  # 1 GiB/s
-    RAMBW = 1  # 1 GiB/s
+    RAMBW = 10  # 10 GiB/s
     CLIENTBW = 15.5 / (2**10)  # 15.5 MiB
     # CLIENTBW = 0
 
@@ -310,4 +310,4 @@ dfs = []
 
 for config in configs:
     df_config = df[df['name'] == config.name]
-    df_config.to_csv(f'results/{config.name}/result.csv')
+    df_config.to_parquet(f'results/{config.name}/result.parquet')
