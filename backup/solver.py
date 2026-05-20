@@ -279,6 +279,8 @@ def calc(disk_size, ram_size, config: Config):
         "n": config.n,
         "l": config.l,
         "layer_size": config.layer_size,
+        "disk_size": disk_size,
+        "ram_size": ram_size,
         "expected_time": prob.value,
         "downtime": t.value,
         "solve_time": prob.solver_stats.solve_time,
@@ -288,9 +290,9 @@ def calc(disk_size, ram_size, config: Config):
 
 
 config_mid = Config(name="mid", n=4, l=36, layer_size=1.81, disk_sizes=[
-                    i for i in range(0, 128 + 1)], ram_sizes=[0] + [2 ** i for i in range(0, 7 + 1)])
+                    i for i in range(0, 2**5 + 1)], ram_sizes=[0] + [2 ** i for i in range(0, 7 + 1)])
 config_large = Config("large", n=8, l=61, layer_size=10.18, disk_sizes=[
-    i for i in range(0, 512 + 1)], ram_sizes=[0] + [2 ** i for i in range(0, 7 + 1)])
+    i for i in range(0, 2**7 + 1)], ram_sizes=[0] + [2 ** i for i in range(0, 7 + 1)])
 
 configs = [config_mid, config_large]
 
@@ -308,4 +310,4 @@ dfs = []
 
 for config in configs:
     df_config = df[df['name'] == config.name]
-    df_config.to_csv(f'{config.name}/result.csv')
+    df_config.to_csv(f'results/{config.name}/result.csv')
