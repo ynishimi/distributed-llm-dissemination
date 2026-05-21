@@ -9,8 +9,8 @@ fps = [f"results/{name}/result.parquet" for name in ["mid", "large"]]
 results = [pd.read_parquet(fp) for fp in fps]
 # print(results)
 
-# results[0] = results[0][results[0]["disk_size"] < 30]
-# results[1] = results[1][results[1]["disk_size"] < 100]
+results[0] = results[0][results[0]["disk_size"] < 30]
+results[1] = results[1][results[1]["disk_size"] < 100]
 
 for result in results:
     result["ram_size"] = result["ram_size"].astype(str)
