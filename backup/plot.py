@@ -9,8 +9,8 @@ fps = [f"results/{name}/result.parquet" for name in ["mid", "large"]]
 results = [pd.read_parquet(fp) for fp in fps]
 # print(results)
 
-results[0] = results[0][results[0]["disk_size"] < 30]
-results[1] = results[1][results[1]["disk_size"] < 100]
+results[0] = results[0][results[0]["disk_size"] < 26]
+results[1] = results[1][results[1]["disk_size"] < 84]
 
 for result in results:
     result["ram_size"] = result["ram_size"].astype(str)
@@ -24,7 +24,7 @@ for result in results:
     plt.clf()
 
     # Fig: downtime
-    result_discrete = result[result["disk_size"] % 5 == 0]
+    result_discrete = result[result["disk_size"] % 2 == 0]
 
     # result_discrete = result_discrete[result_discrete["ram_size"] == 0]
     plt.figure(figsize=(24, 8))
