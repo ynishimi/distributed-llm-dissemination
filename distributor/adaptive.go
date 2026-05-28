@@ -180,8 +180,9 @@ func (leader *AdaptiveLeaderNode) senderReportLoop() {
 	c := time.Tick(ReportDur)
 	counter := 0
 
-	// report client/network rate
-	// count numbers of blocks and elapsed time
+	prevCli := make(map[SourceType]int)
+	prevNet := 0
+
 	for range c {
 		leader.mu.RLock()
 
@@ -191,10 +192,15 @@ func (leader *AdaptiveLeaderNode) senderReportLoop() {
 		cliRate := make(map[SourceType]int64)
 
 		for sourceType, perf := range cliPerf {
-			cliRate[sourceType] = int64(perf.blockCount*BlockSize) * int64(time.Second) / int64(perf.elapsedTime)
+			delta := perf.blockCount - prevCli[sourceType]
+			cliRate[sourceType] = int64(float64(delta*BlockSize) / ReportDur.Seconds())
+			prevCli[sourceType] = perf.blockCount
 		}
 
-		netRate := int64(netPerf.blockCount*BlockSize) * int64(time.Second) / int64(netPerf.elapsedTime)
+		deltaNet := netPerf.blockCount - prevNet
+		netRate := int64(float64(deltaNet*BlockSize) / ReportDur.Seconds())
+		prevNet = netPerf.blockCount
+
 		leader.mu.RUnlock()
 
 		counter++
@@ -638,8 +644,9 @@ func (receiver *AdaptiveReceiverNode) senderReportLoop() {
 	c := time.Tick(ReportDur)
 	counter := 0
 
-	// report client/network rate
-	// count numbers of blocks and elapsed time
+	prevCli := make(map[SourceType]int)
+	prevNet := 0
+
 	for range c {
 		receiver.mu.RLock()
 
@@ -649,10 +656,15 @@ func (receiver *AdaptiveReceiverNode) senderReportLoop() {
 		cliRate := make(map[SourceType]int64)
 
 		for sourceType, perf := range cliPerf {
-			cliRate[sourceType] = int64(perf.blockCount*BlockSize) * int64(time.Second) / int64(perf.elapsedTime)
+			delta := perf.blockCount - prevCli[sourceType]
+			cliRate[sourceType] = int64(float64(delta*BlockSize) / ReportDur.Seconds())
+			prevCli[sourceType] = perf.blockCount
 		}
 
-		netRate := int64(netPerf.blockCount*BlockSize) * int64(time.Second) / int64(netPerf.elapsedTime)
+		deltaNet := netPerf.blockCount - prevNet
+		netRate := int64(float64(deltaNet*BlockSize) / ReportDur.Seconds())
+		prevNet = netPerf.blockCount
+
 		receiver.mu.RUnlock()
 
 		counter++
