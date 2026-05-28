@@ -344,8 +344,9 @@ func (leader *AdaptiveLeaderNode) assignJobs() (t int64, selfJobsMap, jobsMap de
 	for destID, layerIDs := range leader.assignment {
 		for layerID, meta := range layerIDs {
 			// if the destination has the layer in its client, directly send the layer from the client to the node
-			if _, ok := leader.status[destID][layerID]; ok {
-				selfJobsMap[destID] = append(selfJobsMap[destID], job{destID, layerID, meta.LimitRate, leader.layers[layerID].DataSize})
+			if destLayerMeta, ok := leader.status[destID][layerID]; ok {
+				// use the receiver's announced rate (meta.LimitRate from assignment JSON is always 0)
+				selfJobsMap[destID] = append(selfJobsMap[destID], job{destID, layerID, destLayerMeta.LimitRate, leader.layers[layerID].DataSize})
 			} else {
 				if _, ok := modifiedAssignment[destID]; !ok {
 					modifiedAssignment[destID] = make(LayerIDs)
@@ -374,17 +375,17 @@ func (leader *AdaptiveLeaderNode) assignJobs() (t int64, selfJobsMap, jobsMap de
 
 // Jobs are assigned to receivers
 func (leader *AdaptiveLeaderNode) dispatchJobs(selfJobsMap, destJobs destJobsMap) error {
-	// self-assignment
+	// self-assignment: receiver fetches from its own client via loopback
 	for destID, jobInfos := range selfJobsMap {
-		for _, job := range jobInfos {
-			// fixme: currently only block 0 is requested
-			// todo: use clientReqMsg?
-			frMsg := NewReqMsg(
-				leader.node.GetMyID(), job.LayerID, job.SenderID, 0, job.Rate)
-
-			// this time, jobs are sent to receivers
-			err := leader.GetTransport().Send(destID, frMsg)
-			if err != nil {
+		if destID == leader.node.GetMyID() {
+			// leader has no handleJobMsg; mark its own assignment layers as completed directly
+			for _, job := range jobInfos {
+				leader.handleAckMsg(NewAckMsg(leader.node.GetMyID(), job.LayerID))
+			}
+		} else {
+			// non-leader receiver: tell it to fetch from its own client (loopback path)
+			jobMsg := NewJobMsg(leader.node.GetMyID(), jobInfos)
+			if err := leader.GetTransport().Send(destID, jobMsg); err != nil {
 				return err
 			}
 		}
