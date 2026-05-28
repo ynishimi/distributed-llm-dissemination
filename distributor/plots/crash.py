@@ -12,25 +12,37 @@ large = "Large"
 
 hf = "15.5"
 hdd = "200"
-ssd = "1024"
+ssd = "1000"
 
-num_result = 6
+num_result = 9
 
 crash_recovery_mid = pd.DataFrame(
     {
         "Category": [c[i % 3] for i in range(num_result)],
         "Setup": [mid for _ in range(num_result)],
-        "DiskSpeed": [hf, hf, hf, hdd, hdd, hdd],
-        "TTD": [360, 364.661, 368.529, 28, 28.091, 30.067]
+        "DiskSpeed": [hf, hf, hf, hdd, hdd, hdd, ssd, ssd, ssd],
+        "TTD": [360, 364.661, 368.529,
+                28, 28.091, 30.067,
+                28,
+                28.007106466,
+                30.086767009]
     }
 )
 
 crash_recovery_large = pd.DataFrame(
     {
-        "Category": [c[i] for i in [0, 2, 0, 2]],
-        "Setup": [large for _ in range(4)],
-        "DiskSpeed": [hf, hf, hdd, hdd],
-        "TTD": [10.18 * 8 * 1024 / 7 / 15.5, 803.553, 10.18 * 8 * 1024 / 7 / 200, 71.079]
+        "Category": [c[i % 3] for i in range(num_result)],
+        "Setup": [large for _ in range(num_result)],
+        "DiskSpeed": [hf, hf, hf, hdd, hdd, hdd, ssd, ssd, ssd],
+        "TTD": [10.18 * 8 * 1024 / 7 / 15.5,
+                769.08,
+                803.553,
+                10.18 * 8 * 1024 / 7 / 200,
+                60.006,
+                71.079,
+                56,
+                56.001,
+                56.035]
     }
 )
 
