@@ -14,6 +14,8 @@ const BlockSize = 1 << 22
 const Pipeline = 5
 const ReportDur = 5 * time.Second
 
+const ADAPTIVE = true
+
 type perf struct {
 	blockCount  int
 	elapsedTime time.Duration
@@ -125,10 +127,14 @@ func (leader *AdaptiveLeaderNode) handleAnnounceMsg(announceMsg *announceMsg) {
 		// update nodeClientBW for the new node
 		leader.nodeClientBW[announceMsg.SrcID] = make(map[SourceType]int64)
 		for _, meta := range announceMsg.LayerIDs {
-			// leader.nodeClientBW[announceMsg.SrcID][meta.SourceType] = meta.LimitRate
 
-			// initialize nodeClientBW (used for calculating flow graph) with network BW
-			leader.nodeClientBW[announceMsg.SrcID][meta.SourceType] = leader.nodeNetworkBW[announceMsg.SrcID]
+			if !ADAPTIVE {
+				// initialize nodeClientBW (used for calculating flow graph) with network BW, which is considered to be bigger than client's BW
+				leader.nodeClientBW[announceMsg.SrcID][meta.SourceType] = meta.LimitRate
+			} else {
+				// initialize nodeClientBW (used for calculating flow graph) with network BW
+				leader.nodeClientBW[announceMsg.SrcID][meta.SourceType] = leader.nodeNetworkBW[announceMsg.SrcID]
+			}
 		}
 	}
 	leader.mu.Unlock()
@@ -246,6 +252,9 @@ func (leader *AdaptiveLeaderNode) handleReceiverReportMsg(repoMsg *receiverRepor
 }
 
 func (leader *AdaptiveLeaderNode) jobsReassignment() error {
+	if !ADAPTIVE {
+		return nil
+	}
 
 	log.Info().Msg("re-assigning jobs")
 
