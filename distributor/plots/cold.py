@@ -12,25 +12,36 @@ large = "Large"
 
 hf = "15.5"
 hdd = "200"
-ssd = "1024"
+ssd = "1000"
 single = "Single"
 full = "Full"
+nums = [single, full]
 
 cold_start_mid = pd.DataFrame(
     {
-        "Category": [c[i % 2] for i in range(4)],
-        "Setup": [mid for _ in range(4)],
-        "NumClient": [single, single, full, full],
-        "TTD": [1.81 * 1024 * 36 / 15.50, 0, 1.81 * 1024 * 36 / 4 / 15.50, 119.971 * 36 / 4]
+        "Category": [c[0]] + [c[i % 2] for i in range(6)],
+        "Setup": [mid for _ in range(6+1)],
+        "DiskSpeed": [hf, hf, hf, hdd, hdd, ssd, ssd],
+        "NumClient": [single] + [full for i in range(6)],
+        "TTD": [1.81 * 1024 * 36 / 15.50,
+                1.81 * 1024 * 36 / 4 / 15.50, 1079.442,
+                1.81 * 1024 * 36 / 4 / 200, 83.68417,
+                1.81 * 1024 * 36 / 4 / 1000, 16.739456084
+                ]
     }
 )
 
 cold_start_large = pd.DataFrame(
     {
-        "Category": [c[i % 2] for i in range(4)],
-        "Setup": [large for _ in range(4)],
-        "NumClient": [single, single, full, full],
-        "TTD": [10.18 * 1024 * 61 / 15.50, 0, 10.18 * 1024 * 61 / 8 / 15.50, 672.337 * 61 / 8]
+        "Category": [c[0]] + [c[i % 2] for i in range(6)],
+        "Setup": [large for _ in range(6+1)],
+        "DiskSpeed": [hf, hf, hf, hdd, hdd, ssd, ssd],
+        "NumClient": [single] + [full for i in range(6)],
+        "TTD": [10.18 * 1024 * 61 / 15.50,
+                10.18 * 1024 * 61 / 8 / 15.50, 5378.363,
+                10.18 * 1024 * 61 / 8 / 200, 416.946,
+                10.18 * 1024 * 61 / 8 / 1000, 83.393
+                ]
     }
 )
 
@@ -39,12 +50,42 @@ cold_start = pd.concat(
 
 print(cold_start)
 
+cold_start_single_vs_multi = cold_start[cold_start["DiskSpeed"] == hf]
+
 plt.figure(figsize=(24, 8))
 plt.grid(True)
-g = sns.catplot(data=cold_start, kind="bar", x="NumClient",
+g = sns.catplot(data=cold_start_single_vs_multi, kind="bar", x="NumClient",
                 y="TTD", hue="Category", col="Setup")
 
 g.set_axis_labels("# of clients", "TTD [s]")
-
 plt.savefig(
-    f"results/cold_start.png", bbox_inches='tight')
+    f"results/cold_start_single_vs_multi.png", bbox_inches='tight')
+
+cold_start_multi = cold_start[cold_start["NumClient"] == full]
+
+g2 = sns.catplot(data=cold_start_multi, kind="bar", x="DiskSpeed",
+                 y="TTD", hue="Category", col="Setup")
+
+g2.set_axis_labels("# of clients", "TTD [s]")
+plt.savefig(
+    f"results/cold_start_multi.png", bbox_inches='tight')
+
+# Overhead
+estimation = cold_start_multi[
+    cold_start_multi["Category"] == "Estimation"
+][["Setup", "DiskSpeed", "TTD"]].rename(columns={"TTD": "TTD_Estimation"})
+
+overhead = cold_start_multi[
+    cold_start_multi["Category"] != "Estimation"
+].merge(estimation, on=["Setup", "DiskSpeed"])
+
+overhead["Overhead [%]"] = (
+    (overhead["TTD"] - overhead["TTD_Estimation"]) /
+    overhead["TTD_Estimation"] * 100
+)
+
+overhead["DiskSpeed"] = overhead["DiskSpeed"].astype(float)
+overhead = overhead.sort_values("DiskSpeed")
+overhead["DiskSpeed"] = overhead["DiskSpeed"].astype(str)
+
+print(overhead)

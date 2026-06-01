@@ -38,3 +38,5 @@ go.work.sum
 bin/
 layers/
 logs/
+
+backup/results/

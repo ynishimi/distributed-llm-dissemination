@@ -42,9 +42,10 @@ crash_recovery_large = pd.DataFrame(
                 71.079,
                 56,
                 56.001,
-                56.035]
+                58.053]
     }
 )
+
 
 crash_recovery_adaptive = pd.concat(
     [crash_recovery_mid, crash_recovery_large], axis=0)
@@ -60,3 +61,29 @@ g.set_axis_labels("Disk Speed [MiB/s]", "TTD [s]")
 
 plt.savefig(
     f"results/crash_recovery_adaptive.png", bbox_inches='tight')
+
+# Overhead
+estimation = crash_recovery_adaptive[
+    crash_recovery_adaptive["Category"] == "Estimation"
+][["Setup", "DiskSpeed", "TTD"]].rename(columns={"TTD": "TTD_Estimation"})
+
+overhead = crash_recovery_adaptive[
+    crash_recovery_adaptive["Category"] != "Estimation"
+].merge(estimation, on=["Setup", "DiskSpeed"])
+
+overhead["Overhead [%]"] = (
+    (overhead["TTD"] - overhead["TTD_Estimation"]) /
+    overhead["TTD_Estimation"] * 100
+)
+
+overhead["DiskSpeed"] = overhead["DiskSpeed"].astype(float)
+overhead = overhead.sort_values("DiskSpeed")
+overhead["DiskSpeed"] = overhead["DiskSpeed"].astype(str)
+
+print(overhead)
+
+g2 = sns.catplot(data=overhead, kind="bar", x="DiskSpeed",
+                 y="Overhead [%]", hue="Category", col="Setup")
+g2.set_axis_labels("Disk Speed [MiB/s]", "Overhead [%]")
+
+plt.savefig("results/crash_recovery_overhead.png", bbox_inches="tight")

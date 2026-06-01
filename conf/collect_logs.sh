@@ -1,13 +1,14 @@
 #!/bin/bash
 
-NODES=("$@")
+KEY=$1
+NODES=("${@:2}")
 OUTDIR="$(date +%Y%m%d_%H%M%S)"
 
 mkdir -p "logs/$OUTDIR"
 
 for i in "${!NODES[@]}"; do
     ip="${NODES[i]}"
-    scp "ubuntu@$ip:~/log${i}.jsonl" "logs/$OUTDIR/log${i}.jsonl" &
+    scp -i "$KEY" -o StrictHostKeyChecking=no "ubuntu@$ip:~/log${i}.jsonl" "logs/$OUTDIR/log${i}.jsonl" &
 done
 wait
 
