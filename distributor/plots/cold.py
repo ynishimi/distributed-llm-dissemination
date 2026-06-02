@@ -23,11 +23,12 @@ cold_start_mid = pd.DataFrame(
         "Setup": [mid for _ in range(6+1)],
         "DiskSpeed": [hf, hf, hf, hdd, hdd, ssd, ssd],
         "NumClient": [single] + [full for i in range(6)],
-        "TTD": [1.81 * 1024 * 36 / 15.50,
-                1.81 * 1024 * 36 / 4 / 15.50, 1079.442,
-                1.81 * 1024 * 36 / 4 / 200, 83.68417,
-                1.81 * 1024 * 36 / 4 / 1000, 16.739456084
-                ]
+        "TTD": [
+            1.81 * 1024 * 36 / 15.50,
+            1.81 * 1024 * 36 / 4 / 15.50, 1079.442,
+            1.81 * 1024 * 36 / 4 / 200, 83.68417,
+            1.81 * 1024 * 36 / 4 / 1000, 16.739456084
+        ]
     }
 )
 
@@ -37,11 +38,12 @@ cold_start_large = pd.DataFrame(
         "Setup": [large for _ in range(6+1)],
         "DiskSpeed": [hf, hf, hf, hdd, hdd, ssd, ssd],
         "NumClient": [single] + [full for i in range(6)],
-        "TTD": [10.18 * 1024 * 61 / 15.50,
-                10.18 * 1024 * 61 / 8 / 15.50, 5378.363,
-                10.18 * 1024 * 61 / 8 / 200, 416.946,
-                10.18 * 1024 * 61 / 8 / 1000, 83.393
-                ]
+        "TTD": [
+            10.18 * 1024 * 61 / 15.50,
+            10.18 * 1024 * 61 / 8 / 15.50, 5378.363,
+            10.18 * 1024 * 61 / 8 / 200, 416.946,
+            10.18 * 1024 * 61 / 8 / 1000, 83.393
+        ]
     }
 )
 
@@ -52,23 +54,22 @@ print(cold_start)
 
 cold_start_single_vs_multi = cold_start[cold_start["DiskSpeed"] == hf]
 
-plt.figure(figsize=(24, 8))
 plt.grid(True)
 g = sns.catplot(data=cold_start_single_vs_multi, kind="bar", x="NumClient",
-                y="TTD", hue="Category", col="Setup")
+                y="TTD", hue="Category", col="Setup", sharey=False)
 
 g.set_axis_labels("# of clients", "TTD [s]")
 plt.savefig(
-    f"results/cold_start_single_vs_multi.png", bbox_inches='tight')
+    f"results/cold_start_single_vs_multi.pdf", bbox_inches='tight')
 
 cold_start_multi = cold_start[cold_start["NumClient"] == full]
 
 g2 = sns.catplot(data=cold_start_multi, kind="bar", x="DiskSpeed",
-                 y="TTD", hue="Category", col="Setup")
+                 y="TTD", hue="Category", col="Setup", sharey=False)
 
 g2.set_axis_labels("# of clients", "TTD [s]")
 plt.savefig(
-    f"results/cold_start_multi.png", bbox_inches='tight')
+    f"results/cold_start_multi.pdf", bbox_inches='tight')
 
 # Overhead
 estimation = cold_start_multi[

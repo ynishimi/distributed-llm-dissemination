@@ -34,6 +34,7 @@ go.work.sum
 
 *.png
 *.gif
+*.pdf
 
 bin/
 layers/

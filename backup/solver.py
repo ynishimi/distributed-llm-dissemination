@@ -234,7 +234,6 @@ def calc(disk_size, ram_size, config: Config):
     def plot_assignment(x_val, y_val):
         '''creates a heatmap image'''
 
-        plt.figure(figsize=(16, 8))
         plt.subplot(2, 1, 1)
         sns.heatmap(x_val*100, cmap="Blues",
                     )
@@ -253,7 +252,7 @@ def calc(disk_size, ram_size, config: Config):
 
         plt.tight_layout()
         plt.savefig(
-            f"results/{config.name}/images/heatmap_disk{disk_size:02d}GiB_ram{ram_size:02d}GiB.png", bbox_inches='tight')
+            f"results/{config.name}/images/heatmap_disk{disk_size:02d}GiB_ram{ram_size:02d}GiB.pdf", bbox_inches='tight')
         # plt.show()
         plt.close('all')
 

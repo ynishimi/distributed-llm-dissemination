@@ -51,16 +51,14 @@ crash_recovery_adaptive = pd.concat(
     [crash_recovery_mid, crash_recovery_large], axis=0)
 
 print(crash_recovery_adaptive)
-
-plt.figure(figsize=(24, 8))
 plt.grid(True)
 g = sns.catplot(data=crash_recovery_adaptive, kind="bar", x="DiskSpeed",
-                y="TTD", hue="Category", col="Setup")
+                y="TTD", hue="Category", col="Setup", sharey=False)
 
 g.set_axis_labels("Disk Speed [MiB/s]", "TTD [s]")
 
 plt.savefig(
-    f"results/crash_recovery_adaptive.png", bbox_inches='tight')
+    f"results/crash_recovery_adaptive.pdf", bbox_inches='tight')
 
 # Overhead
 estimation = crash_recovery_adaptive[
@@ -83,7 +81,7 @@ overhead["DiskSpeed"] = overhead["DiskSpeed"].astype(str)
 print(overhead)
 
 g2 = sns.catplot(data=overhead, kind="bar", x="DiskSpeed",
-                 y="Overhead [%]", hue="Category", col="Setup")
+                 y="Overhead [%]", hue="Category", col="Setup", sharey=False)
 g2.set_axis_labels("Disk Speed [MiB/s]", "Overhead [%]")
 
-plt.savefig("results/crash_recovery_overhead.png", bbox_inches="tight")
+plt.savefig("results/crash_recovery_overhead.pdf", bbox_inches="tight")
