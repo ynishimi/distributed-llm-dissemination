@@ -100,6 +100,11 @@ def calc(disk_size, ram_size, config: Config):
         f[crashed_node]['client_layer'] = cp.Variable(
             (1, assigned_layer), nonneg=True)
 
+        # remaining layers in survived nodes
+        f[crashed_node]['sender_vram'] = cp.Variable(n, nonneg=True)
+        f[crashed_node]['vram_layer'] = cp.Variable(
+            (n, assigned_layer), nonneg=True)
+
     # constraints
 
     constraints = []
@@ -163,10 +168,10 @@ def calc(disk_size, ram_size, config: Config):
             if sender == client_node:
                 # local disk/ram/client's read do not involve transmission over the network.
                 constraints.append(cp.sum(f[crashed_node]['src_sender'][sender]) ==
-                                   f[crashed_node]['sender_disk'][sender] + f[crashed_node]['sender_ram'][sender] + f[crashed_node]['sender_client'] - local_disk_consumed[sender] - local_ram_consumed[sender] - local_client_consumed[sender])
+                                   f[crashed_node]['sender_disk'][sender] + f[crashed_node]['sender_ram'][sender] + f[crashed_node]['sender_vram'][sender] + f[crashed_node]['sender_client'] - local_disk_consumed[sender] - local_ram_consumed[sender] - local_client_consumed[sender])
             else:
                 constraints.append(f[crashed_node]['src_sender'][sender]
-                                   == f[crashed_node]['sender_disk'][sender] + f[crashed_node]['sender_ram'][sender] - local_disk_consumed[sender] - local_ram_consumed[sender])
+                                   == f[crashed_node]['sender_disk'][sender] + f[crashed_node]['sender_ram'][sender] + f[crashed_node]['sender_vram'][sender] - local_disk_consumed[sender] - local_ram_consumed[sender])
 
         # disk bw
         constraints.append(f[crashed_node]['sender_disk'] <=
@@ -191,6 +196,10 @@ def calc(disk_size, ram_size, config: Config):
         constraints.append(f[crashed_node]['sender_client'] ==
                            cp.sum(f[crashed_node]['client_layer'], axis=1))
 
+        # vram flow
+        constraints.append(f[crashed_node]['sender_vram'] ==
+                           cp.sum(f[crashed_node]['vram_layer'], axis=1))
+
         # data obtained by each disk
         constraints.append(f[crashed_node]['disk_layer'] <= cp.multiply(x, S))
 
@@ -204,7 +213,8 @@ def calc(disk_size, ram_size, config: Config):
                 continue
             constraints.append(cp.sum(f[crashed_node]['disk_layer'][:, ALT_ASSIGNMENTS[crashed_node][node_asgn]], axis=0) +
                                cp.sum(f[crashed_node]['ram_layer'][:, ALT_ASSIGNMENTS[crashed_node][node_asgn]], axis=0) +
-                               cp.sum(f[crashed_node]['client_layer'][:, ALT_ASSIGNMENTS[crashed_node][node_asgn]], axis=0) ==
+                               cp.sum(f[crashed_node]['client_layer'][:, ALT_ASSIGNMENTS[crashed_node][node_asgn]], axis=0) +
+                               cp.sum(f[crashed_node]['vram_layer'][:, ALT_ASSIGNMENTS[crashed_node][node_asgn]], axis=0) ==
                                f[crashed_node]['layer_receiver'][ALT_ASSIGNMENTS[crashed_node][node_asgn]])
 
         # network bw
@@ -215,6 +225,17 @@ def calc(disk_size, ram_size, config: Config):
                            ['receiver_sink'] <= cp.multiply(B, t[crashed_node]))
         # crashed node doesn't send layers
         constraints.append(f[crashed_node]['src_sender'][crashed_node] == 0)
+        constraints.append(f[crashed_node]['sender_vram'][crashed_node] == 0)
+
+        # VRAM has layers in init assignment; only those layers can be sent
+        for node in range(n):
+            for layer in range(config.l):
+                if layer in INIT_ASSIGNMENT[node]:
+                    constraints.append(
+                        f[crashed_node]['vram_layer'][node, layer] <= S[layer])
+                else:
+                    constraints.append(
+                        f[crashed_node]['vram_layer'][node, layer] == 0)
 
     # objective function
     # obj = cp.Minimize(LAMBDA * (1 - PI) @ t)
