@@ -67,7 +67,7 @@ cold_start_multi = cold_start[cold_start["NumClient"] == full]
 g2 = sns.catplot(data=cold_start_multi, kind="bar", x="DiskSpeed",
                  y="TTD", hue="Category", col="Setup", sharey=False)
 
-g2.set_axis_labels("# of clients", "TTD [s]")
+g2.set_axis_labels("Source bandwidth [MiB/s]", "TTD [s]")
 plt.savefig(
     f"results/cold_start_multi.pdf", bbox_inches='tight')
 

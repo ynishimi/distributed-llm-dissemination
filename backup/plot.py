@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -5,12 +6,63 @@ import seaborn as sns
 sns.set_theme()
 sns.set_context("paper")
 
+
+def plot_assignment(result: pd.DataFrame, disk_size: int, ram_size: int):
+    '''
+    Draw a heatmap of layer assignment (%) per node.
+    Rows = nodes, columns = layers, values = percentage of each layer stored on the node.
+
+    Parameters
+    ----------
+    result    : DataFrame for one scenario (one config name)
+    disk_size : disk size (GiB) to select
+    ram_size  : RAM size (GiB) to select
+    '''
+    config_name = result["name"].iloc[0]
+
+    row = result[(result["disk_size"] == disk_size)
+                 & (result["ram_size"] == ram_size)]
+    if row.empty:
+        return
+
+    x_assignment = row["x_assignment"].iloc[0]
+    x_ram_assignment = row["x_ram_assignment"].iloc[0]
+    if x_assignment is None or x_ram_assignment is None:
+        return
+
+    x_val = np.array([list(row) for row in x_assignment], dtype=float)      # shape: (n, l)
+    x_ram_val = np.array([list(row) for row in x_ram_assignment], dtype=float)
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 6))
+
+    sns.heatmap(x_val * 100, ax=axes[0], cmap="Blues", vmin=0, vmax=100,
+                cbar_kws={"label": "Stored (%)"},
+                xticklabels=10, yticklabels=True)
+    axes[0].set_xlabel("Layer")
+    axes[0].set_ylabel("Node")
+    axes[0].set_title(
+        f"Backup layer placement on Disk (disk={disk_size:02d}GiB, ram={ram_size:02d}GiB)")
+
+    sns.heatmap(x_ram_val * 100, ax=axes[1], cmap="Oranges", vmin=0, vmax=100,
+                cbar_kws={"label": "Stored (%)"},
+                xticklabels=10, yticklabels=True)
+    axes[1].set_xlabel("Layer")
+    axes[1].set_ylabel("Node")
+    axes[1].set_title(
+        f"Backup layer placement on RAM (disk={disk_size:02d}GiB, ram={ram_size:02d}GiB)")
+
+    plt.tight_layout()
+    plt.savefig(
+        f"results/{config_name}/images/heatmap_disk{disk_size:02d}GiB_ram{ram_size:02d}GiB.pdf", bbox_inches='tight')
+    plt.close('all')
+
+
 SCENARIO_LABELS = {
     "mid": "Medium",
     "large": "Large",
 }
 
-fps = [f"results/{name}/result_new.parquet" for name in ["mid", "large"]]
+fps = [f"results/{name}/result.parquet" for name in ["mid", "large"]]
 results = [pd.read_parquet(fp) for fp in fps]
 # print(results)
 
@@ -18,6 +70,11 @@ results[0] = results[0][results[0]["disk_size"] < 26]
 results[1] = results[1][results[1]["disk_size"] < 84]
 
 for result in results:
+    # Fig: heatmap of layer assignment per node
+    for disk_size in sorted(result["disk_size"].unique()):
+        for ram_size in sorted(result["ram_size"].unique()):
+            plot_assignment(result, disk_size, ram_size)
+
     result["ram_size"] = result["ram_size"].astype(str)
     scenario_name = result["name"].iloc[0]
     # Fig: disk backup effectiveness for fixed RAM size

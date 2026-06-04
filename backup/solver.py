@@ -1,14 +1,9 @@
-import seaborn as sns
-import matplotlib.pyplot as plt
 from dataclasses import dataclass
 import cvxpy as cp
 import numpy as np
 import pandas as pd
 
 np.set_printoptions(precision=3)
-
-sns.set_theme()
-sns.set_context("paper")
 
 
 @dataclass
@@ -231,31 +226,6 @@ def calc(disk_size, ram_size, config: Config):
 
     prob.solve(solver=cp.HIGHS, canon_backend=cp.SCIPY_CANON_BACKEND)
 
-    def plot_assignment(x_val, y_val):
-        '''creates a heatmap image'''
-
-        plt.subplot(2, 1, 1)
-        sns.heatmap(x_val*100, cmap="Blues",
-                    )
-        plt.xlabel("Layer")
-        plt.ylabel("Node")
-        plt.title(
-            f"Backup layer placement on Disk (disk={disk_size:02d}GiB)")
-
-        plt.subplot(2, 1, 2)
-        sns.heatmap(y_val*100, cmap="Oranges",
-                    )
-        plt.xlabel("Layer")
-        plt.ylabel("Node")
-        plt.title(
-            f"Backup layer placement on RAM (ram={ram_size:02d}GiB)")
-
-        plt.tight_layout()
-        plt.savefig(
-            f"results/{config.name}/images/heatmap_disk{disk_size:02d}GiB_ram{ram_size:02d}GiB.pdf", bbox_inches='tight')
-        # plt.show()
-        plt.close('all')
-
     def print_results():
         print(
             f"result(config={config.name}, disk={disk_size:03d}GiB, ram={ram_size:03d}GiB):", prob.status)
@@ -285,6 +255,8 @@ def calc(disk_size, ram_size, config: Config):
         "solve_time": prob.solver_stats.solve_time,
         "disk_usage": (x @ S).value,
         "ram_usage": (x_ram @ S).value,
+        "x_assignment": x.value.tolist() if x.value is not None else None,
+        "x_ram_assignment": x_ram.value.tolist() if x_ram.value is not None else None,
     }
 
 
