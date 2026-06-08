@@ -41,3 +41,5 @@ layers/
 logs/
 
 backup/results/
+
+__pycache__/

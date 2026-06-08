@@ -1,9 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-
-sns.set_theme()
-sns.set_context("paper")
+from config import catplot
 
 c = ["Estimation", "Performance", "Performance (Adaptive)"]
 
@@ -53,7 +51,7 @@ crash_recovery_adaptive = pd.concat(
 print(crash_recovery_adaptive)
 plt.grid(True)
 g = sns.catplot(data=crash_recovery_adaptive, kind="bar", x="DiskSpeed",
-                y="TTD", hue="Category", col="Setup", sharey=False)
+                y="TTD", hue="Category", col="Setup", sharey=False, **catplot)
 
 g.set_axis_labels("Disk Speed [MiB/s]", "TTD [s]")
 
@@ -81,7 +79,7 @@ overhead["DiskSpeed"] = overhead["DiskSpeed"].astype(str)
 print(overhead)
 
 g2 = sns.catplot(data=overhead, kind="bar", x="DiskSpeed",
-                 y="Overhead [%]", hue="Category", col="Setup", sharey=False)
+                 y="Overhead [%]", hue="Category", col="Setup", sharey=False, **catplot)
 g2.set_axis_labels("Disk Speed [MiB/s]", "Overhead [%]")
 
 plt.savefig("results/crash_recovery_overhead.pdf", bbox_inches="tight")

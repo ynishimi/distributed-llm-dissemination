@@ -4,9 +4,7 @@ import re
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-
-sns.set_theme()
-sns.set_context("paper")
+from config import figsize
 
 c = ["Limited bandwidth", "Limited bandwidth for first 10s"]
 
@@ -75,13 +73,14 @@ def load_reported_rate(run_dir, label):
     return pd.DataFrame(rows)
 
 
+plt.figure(figsize=figsize)
 rate = pd.concat([load_reported_rate(d, label) for label, d in RUNS.items()],
                  ignore_index=True)
 ax = sns.lineplot(data=rate, x="Time", y="Rate",
-                  hue="Condition", style="Condition", markers=True,)
+                  hue="Condition", style="Condition", markers=True)
 ax.axvline(RESTORE_TIME, color="gray", linestyle="--", linewidth=1)
 ax.set(xlabel="Time [s]", ylabel="Reported sending rate of n1 [Mbps]",
        yscale="log")
-ax.set_ylim(bottom=10, top=10**4)
+ax.set_ylim(bottom=10**2/2, top=10**4/2)
 
-plt.savefig("results/crash_recovery_tc_rate.pdf", bbox_inches="tight")
+plt.savefig("results/crash_recovery_tc_rate.pdf")

@@ -1,9 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-
-sns.set_theme()
-sns.set_context("paper")
+from config import catplot
 
 c = ["Estimation", "Performance"]
 
@@ -56,7 +54,8 @@ cold_start_single_vs_multi = cold_start[cold_start["DiskSpeed"] == hf]
 
 plt.grid(True)
 g = sns.catplot(data=cold_start_single_vs_multi, kind="bar", x="NumClient",
-                y="TTD", hue="Category", col="Setup", sharey=False)
+                y="TTD", hue="Category", col="Setup", sharey=False,
+                **catplot)
 
 g.set_axis_labels("# of clients", "TTD [s]")
 plt.savefig(
@@ -65,7 +64,8 @@ plt.savefig(
 cold_start_multi = cold_start[cold_start["NumClient"] == full]
 
 g2 = sns.catplot(data=cold_start_multi, kind="bar", x="DiskSpeed",
-                 y="TTD", hue="Category", col="Setup", sharey=False)
+                 y="TTD", hue="Category", col="Setup", sharey=False,
+                 **catplot)
 
 g2.set_axis_labels("Source bandwidth [MiB/s]", "TTD [s]")
 plt.savefig(
