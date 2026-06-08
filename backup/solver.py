@@ -41,17 +41,12 @@ def calc(disk_size, ram_size, config: Config):
     assigned_layer = config.l
     layer_size = config.layer_size
 
-    LAMBDA_BASE = 1
-    '''One crash per unit time [/time]'''
-    # PI_STABLE = 0.8
-    PI_STABLE = 0
-    PI_UNSTABLE = 0
-    # PI_UNSTABLE = 0.8
-
-    LAMBDA = np.array([LAMBDA_BASE for _ in range(n)])
-    '''The expected Poisson count (mean) for node'''
-    PI = np.array([PI_UNSTABLE if i == 0 else PI_STABLE for i in range(n)])
-    '''Probability that the node is fault-tolerant'''
+    LAMBDA_BASE = 1.0
+    RHO = 7.0
+    FRAGILE_NODE = 0
+    LAMBDA = np.array([LAMBDA_BASE * (RHO if i == FRAGILE_NODE else 1.0)
+                       for i in range(n)])
+    '''per-node crash rate (relative; only the ratio between nodes matters)'''
 
     S = np.array([layer_size for _ in range(assigned_layer)])
     '''size of layers (= |l|)'''
@@ -237,9 +232,8 @@ def calc(disk_size, ram_size, config: Config):
                     constraints.append(
                         f[crashed_node]['vram_layer'][node, layer] == 0)
 
-    # objective function
-    # obj = cp.Minimize(LAMBDA * (1 - PI) @ t)
-    obj = cp.Minimize(LAMBDA * (1 - PI) @ t + 1e-5 *
+    # objective function: expected downtime per unit time = sum_n lambda_n * t_n
+    obj = cp.Minimize(LAMBDA @ t + 1e-5 *
                       cp.sum(x) + 1e-5 * cp.sum(x_ram))
 
     # Form and solve problem.
@@ -271,6 +265,9 @@ def calc(disk_size, ram_size, config: Config):
         "layer_size": config.layer_size,
         "disk_size": disk_size,
         "ram_size": ram_size,
+        "fragile_node": FRAGILE_NODE,
+        "rho": RHO,
+        "lambda_rate": LAMBDA.tolist(),
         "expected_time": prob.value,
         "downtime": t.value,
         "solve_time": prob.solver_stats.solve_time,
@@ -298,8 +295,9 @@ for config in configs:
 
 df = pd.DataFrame(rows)
 
-dfs = []
-
+# Written to a separate file so the existing uniform-weight result.parquet is
+# preserved. The non-uniform crash-rate run is distinguished by this filename
+# and by the fragile_node / rho / lambda_rate columns.
 for config in configs:
     df_config = df[df['name'] == config.name]
-    df_config.to_parquet(f'results/{config.name}/result.parquet')
+    df_config.to_parquet(f'results/{config.name}/result_nonuniform.parquet')
