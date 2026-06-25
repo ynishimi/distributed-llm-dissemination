@@ -83,4 +83,4 @@ ax.set(xlabel="Time [s]", ylabel="Reported sending rate of n1 [Mbps]",
        yscale="log")
 ax.set_ylim(bottom=10**2/2, top=10**4/2)
 
-plt.savefig("results/crash_recovery_tc_rate.pdf")
+plt.savefig("results/crash_recovery_tc_rate.pdf", bbox_inches="tight")
