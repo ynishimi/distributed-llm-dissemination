@@ -103,17 +103,17 @@ def calc(disk_size, ram_size, config: Config):
     # constraints
 
     constraints = []
-    constraints.append(x <= 1)
+    constraints.append(x <= 1)  # remove?
     constraints.append(x @ S <= C)  # disk capacity constraint
 
-    constraints.append(x_ram <= 1)
+    constraints.append(x_ram <= 1)  # remove?
     constraints.append(x_ram @ S <= C_RAM)  # ram capacity constraint
 
     # proportion constraint: cannot hold more than 1 layer combining disk and ram
     constraints.append(x + x_ram <= 1)
 
     for crashed_node in range(n):
-        # network bw
+        # network bw (remove?)
         constraints.append(f[crashed_node]['src_sender'] <=
                            cp.multiply(B, t[crashed_node]))
 
@@ -127,13 +127,13 @@ def calc(disk_size, ram_size, config: Config):
             assigned_layers = ALT_ASSIGNMENTS[crashed_node][receiver]
             for assigned_layer in assigned_layers:
                 if assigned_layer in INIT_ASSIGNMENT[receiver]:
-                    # already has l
+                    # if the receiver already has l, it should not be sent again
                     constraints.append(
                         f[crashed_node]['layer_receiver'][assigned_layer] == 0)
                     constraints.append(x[receiver, assigned_layer] == 0)
                     constraints.append(x_ram[receiver, assigned_layer] == 0)
                 else:
-                    # missing l
+                    # missing l, the whole layer should be delivered
                     constraints.append(
                         f[crashed_node]['layer_receiver'][assigned_layer] == S[assigned_layer])
 
@@ -153,6 +153,7 @@ def calc(disk_size, ram_size, config: Config):
             if layers_to_receive:
                 constraints.append(
                     # flow: each layer is sent to a receiver, based on an alternative assignment. Ignore local disk and ram's read, as it doesn't use the network bandwidth.
+                    # Note: the client's bandwidth is not subtracted, as the data will be loaded over the network, consuming the network bandwidth.
                     cp.sum(f[crashed_node]['layer_receiver'][layers_to_receive]) - local_disk_consumed[receiver] - local_ram_consumed[receiver] == f[crashed_node]['receiver_sink'][receiver])
             else:
                 constraints.append(
