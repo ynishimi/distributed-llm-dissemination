@@ -6,6 +6,10 @@ import seaborn as sns
 sns.set_theme()
 sns.set_context("paper")
 
+# Common figure size, shared with the evaluation figures (see
+# backup/plot/essentials/config.py and distributor/plots/config.py).
+figsize = (2.4 * 0.9 * 2, 2.4)
+
 
 def plot_assignment(result: pd.DataFrame, disk_size: int, ram_size: int):
     '''
@@ -13,6 +17,7 @@ def plot_assignment(result: pd.DataFrame, disk_size: int, ram_size: int):
     Rows = nodes, columns = layers, values = percentage of each layer stored on the node.
 
     Parameters
+
     ----------
     result    : DataFrame for one scenario (one config name)
     disk_size : disk size (GiB) to select
@@ -30,10 +35,11 @@ def plot_assignment(result: pd.DataFrame, disk_size: int, ram_size: int):
     if x_assignment is None or x_ram_assignment is None:
         return
 
-    x_val = np.array([list(row) for row in x_assignment], dtype=float)      # shape: (n, l)
+    x_val = np.array([list(row) for row in x_assignment],
+                     dtype=float)      # shape: (n, l)
     x_ram_val = np.array([list(row) for row in x_ram_assignment], dtype=float)
 
-    fig, axes = plt.subplots(2, 1, figsize=(12, 6))
+    fig, axes = plt.subplots(2, 1, figsize=(figsize[0], figsize[1] * 1.5))
 
     sns.heatmap(x_val * 100, ax=axes[0], cmap="Blues", vmin=0, vmax=100,
                 cbar_kws={"label": "Stored (%)"},
@@ -71,13 +77,14 @@ results[1] = results[1][results[1]["disk_size"] < 84]
 
 for result in results:
     # Fig: heatmap of layer assignment per node
-    for disk_size in sorted(result["disk_size"].unique()):
-        for ram_size in sorted(result["ram_size"].unique()):
-            plot_assignment(result, disk_size, ram_size)
+    # for disk_size in sorted(result["disk_size"].unique()):
+    #     for ram_size in sorted(result["ram_size"].unique()):
+    #         plot_assignment(result, disk_size, ram_size)
 
     result["ram_size"] = result["ram_size"].astype(str)
     scenario_name = result["name"].iloc[0]
     # Fig: disk backup effectiveness for fixed RAM size
+    plt.figure(figsize=figsize)
     ax = sns.scatterplot(data=result, x="disk_size",
                          y="expected_time", hue="ram_size")
     ax.set_xlabel("Disk size (GiB)")
@@ -89,6 +96,7 @@ for result in results:
         f"results/{scenario_name}/plot_e_new.pdf", bbox_inches='tight')
     plt.clf()
 
+    plt.figure(figsize=figsize)
     ax = sns.scatterplot(data=result, x="disk_size",
                          y="expected_time", hue="ram_size")
     ax.set_xlabel("Disk size (GiB)")
@@ -102,7 +110,7 @@ for result in results:
     # Fig: downtime
     result_discrete = result[result["disk_size"] % 5 == 0]
 
-    plt.figure(figsize=(6.4*3, 4.8))
+    plt.figure(figsize=figsize)
     # result_discrete = result_discrete[result_discrete["ram_size"] == 0]
     ax = sns.boxplot(
         data=result_discrete.explode("downtime"),
@@ -123,7 +131,7 @@ for result in results:
 
 
 # Fig: computation time
-plt.figure(figsize=(6.4, 4.8))
+plt.figure(figsize=figsize)
 
 merged_results = pd.concat([results[0], results[1]], ignore_index=True)
 merged_results["scenario"] = merged_results["name"].map(
